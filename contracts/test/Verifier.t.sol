@@ -6,8 +6,7 @@ import {zERC20} from "../src/zERC20.sol";
 import {
     Verifier,
     IRootTransitionVerifier,
-    IWithdrawVerifier,
-    ISingleRootTransitionVerifier
+    IWithdrawVerifier
 } from "../src/Verifier.sol";
 
 contract MockRootVerifier is IRootTransitionVerifier {
@@ -34,23 +33,6 @@ contract MockWithdrawVerifier is IWithdrawVerifier {
     }
 }
 
-contract MockSingleRootTransitionVerifier is ISingleRootTransitionVerifier {
-    bool public result = true;
-
-    function setResult(bool r) external {
-        result = r;
-    }
-
-    function verifyProof(
-        uint256[2] calldata,
-        uint256[2][2] calldata,
-        uint256[2] calldata,
-        uint256[6] calldata
-    ) external view returns (bool) {
-        return result;
-    }
-}
-
 contract VerifierTest is Test {
     using stdStorage for StdStorage;
 
@@ -58,7 +40,6 @@ contract VerifierTest is Test {
     Verifier verifier;
     MockRootVerifier rootV;
     MockWithdrawVerifier withdrawV;
-    MockSingleRootTransitionVerifier singleRootV;
 
     address alice = address(0xA11CE);
     address bob = address(0xB0B);
@@ -72,8 +53,7 @@ contract VerifierTest is Test {
         verifier = new Verifier(token, INITIAL_ROOT);
         rootV = new MockRootVerifier();
         withdrawV = new MockWithdrawVerifier();
-        singleRootV = new MockSingleRootTransitionVerifier();
-        verifier.setVerifiers(rootV, withdrawV, singleRootV);
+        verifier.setVerifiers(rootV, withdrawV);
         token.setVerifier(address(verifier));
     }
 

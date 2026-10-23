@@ -64,10 +64,6 @@ fn u256_to_fr(v: U256) -> Fr {
     Fr::from_be_bytes_mod_order(&bytes)
 }
 
-fn fq_to_u256(x: Fq) -> U256 {
-    U256::from_be_slice(&crate::server::db::fr_to_blob(x))
-}
-
 fn parse_hex20(s: &str) -> Result<[u8; 20], String> {
     let s = s.strip_prefix("0x").unwrap_or(s);
     let b = hex::decode(s).map_err(|e| e.to_string())?;

@@ -23,16 +23,14 @@ use crate::server::wallet::Wallet;
 use crate::server::{BurnStep, IToken, IVault, IVerifier, SharedState, u256_to_fr};
 
 use alloy::primitives::B256;
-use ark_bn254::{Bn254, Fq, Fr};
+use ark_bn254::{Fq, Fr};
 use ark_ff::Zero; // replace `use ark_bn254::Fr;` with the line above
 use std::time::Instant;
 
-use crate::server::fq_to_u256;
 use crate::tree::TREE_DEPTH;
 use crate::zkp::{
-    RootTransitionCircuit, RootTransitionWitness, SingleRootTransitionCircuit, WithdrawCircuit,
-    WithdrawWitness, poseidon2, prove_root_transition, prove_single_root_transition,
-    prove_withdraw,
+    RootTransitionCircuit, RootTransitionWitness, WithdrawCircuit, WithdrawWitness, poseidon2,
+    prove_root_transition, prove_withdraw,
 };
 
 /// Max blocks per eth_getLogs call — under hosted-RPC range caps.
@@ -208,25 +206,15 @@ async fn process(
         .into());
     }
 
-    if witnesses.len() == 1 {
-        let z_0 = [z_0[0], z_0[1], z_0[2]];
-        let z_1 = [
-            Fr::from(work.chain.index()),
-            work.chain.state(),
-            work.tree.root(),
-        ];
-        submit_single_update_root(
-            wallet,
-            provider,
-            config,
-            z_0,
-            z_1,
-            witnesses.into_iter().next().unwrap(),
-        )
-        .await?;
-    } else {
-        submit_update_root(wallet, provider, config, z_0, witnesses).await?;
+    if witnesses.len() <= 1 {
+        debug!(
+            stage = "update_root",
+            witnesses = witnesses.len(),
+            "need >=2 witnesses for a batch; deferring"
+        );
+        return Ok(());
     }
+    submit_update_root(wallet, provider, config, z_0, witnesses).await?;
 
     // ---- withdraws: fold all reposits for a given recipient in the current namespace ----
     let recip = recipient(work.chain_id, work.exchange_addr, work.tweak);
@@ -305,34 +293,6 @@ async fn payouts(
             }
         }
     }
-    Ok(())
-}
-
-/// Single-leaf epoch — Groth16 (the Nova decider needs >= 2 steps).
-async fn submit_single_update_root(
-    wallet: &Wallet,
-    provider: &impl Provider,
-    config: &Config,
-    z_0: [Fr; 3],
-    z_1: [Fr; 3],
-    witness: RootTransitionWitness,
-) -> Result<(), Box<dyn std::error::Error>> {
-    info!(stage = "commit", "proving one-leaf transition (Groth16)");
-    let circuit = SingleRootTransitionCircuit { z_0, z_1, witness };
-    let (proof, _) = prove_single_root_transition(circuit)?;
-    let (a, b, c) = pack_groth16(&proof);
-    let signals: [U256; 6] = [
-        fr_to_u256(z_0[0]),
-        fr_to_u256(z_0[1]),
-        fr_to_u256(z_0[2]),
-        fr_to_u256(z_1[0]),
-        fr_to_u256(z_1[1]),
-        fr_to_u256(z_1[2]),
-    ];
-    let verifier = IVerifier::new(config.verifier, provider);
-    let call = verifier.updateRootSingle(a, b, c, signals);
-    let rc = send_and_confirm(wallet, provider, config.verifier, call.calldata().clone()).await?;
-    info!(stage = "commit", tx = %rc.transaction_hash, gas = rc.gas_used, "updateRootSingle confirmed");
     Ok(())
 }
 
@@ -495,18 +455,6 @@ fn commit_transfer(
     };
     apply_transfer(s, from, to, value)?;
     Ok(witness)
-}
-
-/// Solidity verifier layout: G1 (x,y); G2 with c1 before c0 per contract convention.
-fn pack_groth16(p: &ark_groth16::Proof<Bn254>) -> ([U256; 2], [[U256; 2]; 2], [U256; 2]) {
-    (
-        [fq_to_u256(p.a.x), fq_to_u256(p.a.y)],
-        [
-            [fq_to_u256(p.b.x.c1), fq_to_u256(p.b.x.c0)],
-            [fq_to_u256(p.b.y.c1), fq_to_u256(p.b.y.c0)],
-        ],
-        [fq_to_u256(p.c.x), fq_to_u256(p.c.y)],
-    )
 }
 
 /// Latest registration per address, re-validated on load; malformed rows skipped.

@@ -11,24 +11,6 @@ interface IWithdrawVerifier {
     function verifyOpaqueNovaProof(uint256[34] calldata proof) external view returns (bool);
 }
 
-interface ISingleRootTransitionVerifier {
-    function verifyProof(
-        uint256[2] calldata pA,
-        uint256[2][2] calldata pB,
-        uint256[2] calldata pC,
-        uint256[6] calldata pubSignals
-    ) external view returns (bool);
-}
-
-interface ISingleWithdrawVerifier {
-    function verifyProof(
-        uint256[2] calldata pA,
-        uint256[2][2] calldata pB,
-        uint256[2] calldata pC,
-        uint256[4] calldata pubSignals
-    ) external view returns (bool);
-}
-
 contract Verifier {
     zERC20 public token;
 
@@ -37,15 +19,18 @@ contract Verifier {
     uint256 public transferIndex;      // leaves folded into transferRoot
     uint256 public transferHashChain;
 
-    uint256 public reservedHashChain;
     uint256 public reservedIndex;
+    uint256 public reservedHashChain;
+
+    uint256 public startingRoot;
+    uint256 public startingIndex;
+    uint256 public startingHashChain;
 
     mapping(uint256 => uint256) public totalWithdrawn; // recipient => lifetime sum already minted
     mapping(uint256 => uint256) public withdrawnIndex;
 
     IRootTransitionVerifier public rootTransitionVerifier;
     IWithdrawVerifier public withdrawVerifier;
-    ISingleRootTransitionVerifier public singleRootTransitionVerifier;
 
     address public owner;
 
@@ -69,12 +54,10 @@ contract Verifier {
 
     function setVerifiers(
         IRootTransitionVerifier root_,
-        IWithdrawVerifier withdraw_,
-        ISingleRootTransitionVerifier singleRoot_
+        IWithdrawVerifier withdraw_
     ) external onlyOwner {
         rootTransitionVerifier = root_;
         withdrawVerifier = withdraw_;
-        singleRootTransitionVerifier = singleRoot_;
     }
 
     /// Snapshot the token's burn hash chain so updateRoot proofs have a stable target.
@@ -83,6 +66,13 @@ contract Verifier {
         require(index <= TREE_CAPACITY, "tree full");
         reservedIndex = index;
         reservedHashChain = token.burnHashChain();
+    }
+
+    function updateStartingHashChain() external onlyOwner {
+        require(reservedIndex - transferIndex >= 2, "reserved not advanced enough");
+        startingIndex = transferIndex;
+        startingHashChain = transferHashChain;
+        startingRoot = transferRoot;
     }
 
     /// proof = [i, z0[0..3], zi[0..3], 25 decider elements]
@@ -95,9 +85,12 @@ contract Verifier {
         uint256 newHashChain = proof[5];
         uint256 newRoot = proof[6];
 
-        require(prevIndex == transferIndex, "stale index");
-        require(prevHashChain == transferHashChain, "stale hash chain");
-        require(prevRoot == transferRoot, "stale root");
+        // starting index is updated manually
+        require(prevIndex == startingIndex, "stale index");
+        require(prevHashChain == startingHashChain, "stale hash chain");
+        require(prevRoot == startingRoot, "stale root");
+
+        // newly computed params check
         require(newIndex > prevIndex, "no progress");
         require(newHashChain == reservedHashChain, "hash chain mismatch");
         require(newIndex == reservedIndex, "hash index mismatch");
@@ -107,28 +100,6 @@ contract Verifier {
         transferRoot = newRoot;
         transferIndex = newIndex;
         transferHashChain = newHashChain;
-    }
-
-    /// Single-leaf epoch — Groth16 instead of the Nova decider (which needs >= 2 steps).
-    /// pubSignals = [prevIndex, prevHashChain, prevRoot, newIndex, newHashChain, newRoot]
-    function updateRootSingle(
-        uint256[2] calldata pA,
-        uint256[2][2] calldata pB,
-        uint256[2] calldata pC,
-        uint256[6] calldata pubSignals
-    ) external {
-        require(pubSignals[0] == transferIndex, "stale index");
-        require(pubSignals[1] == transferHashChain, "stale hash chain");
-        require(pubSignals[2] == transferRoot, "stale root");
-        require(pubSignals[3] == pubSignals[0] + 1, "not single-step");
-        require(pubSignals[4] == reservedHashChain, "hash chain mismatch");
-        require(pubSignals[3] == reservedIndex, "hash index mismatch");
-
-        require(singleRootTransitionVerifier.verifyProof(pA, pB, pC, pubSignals), "invalid proof");
-
-        transferRoot = pubSignals[5];
-        transferIndex = pubSignals[3];
-        transferHashChain = pubSignals[4];
     }
 
     /// proof = [i, z0[0..4], zi[0..4], 25 decider elements]

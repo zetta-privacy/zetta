@@ -1,17 +1,17 @@
 mod poseidon;
 mod update_root;
-mod update_root_single;
 mod withdraw;
 
 use ark_bn254::{Bn254, Fr, G1Projective as G1};
-use ark_groth16::{Groth16, ProvingKey, VerifyingKey};
+use ark_groth16::Groth16;
 use ark_grumpkin::Projective as G2;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_snark::SNARK;
 use folding_schemes::commitment::kzg::KZG;
 use folding_schemes::commitment::pedersen::Pedersen;
 use folding_schemes::folding::nova::decider_eth::Decider as DeciderEth;
+use folding_schemes::folding::nova::decider_eth::DeciderEthCircuit;
 use folding_schemes::folding::nova::{Nova, PreprocessorParam};
+use folding_schemes::folding::traits::Dummy;
 use folding_schemes::frontend::FCircuit;
 use folding_schemes::transcript::poseidon::poseidon_canonical_config;
 use folding_schemes::{Decider, FoldingScheme};
@@ -20,14 +20,13 @@ use tracing::info;
 
 pub use poseidon::*;
 pub use update_root::*;
-pub use update_root_single::*;
 pub use withdraw::*;
 
+use solidity_verifiers::NovaCycleFoldVerifierKey;
 use solidity_verifiers::calldata::{
     NovaVerificationMode, prepare_calldata_for_nova_cyclefold_verifier,
 };
 use solidity_verifiers::verifiers::nova_cyclefold::get_decider_template_for_cyclefold_decider;
-use solidity_verifiers::{Groth16VerifierKey, NovaCycleFoldVerifierKey, ProtocolVerifierKey};
 
 pub const ARTIFACTS_DIR: &str = "artifacts";
 
@@ -211,78 +210,6 @@ nova_artifact_set!(
     cached = cached_withdraw_params
 );
 
-// ---- single-step Groth16 artifact families (single_root / single_withdraw) ----
-
-macro_rules! groth16_artifact_set {
-    ($prefix:literal, $circuit:ty,
-     create = $create:ident, read = $read:ident, write = $write:ident, cached = $cached:ident,
-     render_verifier = $render:ident) => {
-        /// CREATE: fresh Groth16 keys in memory. No fs, no cache.
-        pub fn $create()
-        -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), Box<dyn std::error::Error>> {
-            let mut rng = ark_std::rand::rngs::OsRng;
-            let pk = Groth16::<Bn254>::generate_random_parameters_with_reduction(
-                <$circuit>::default(),
-                &mut rng,
-            )?;
-            Ok((pk.clone(), pk.vk.clone()))
-        }
-
-        /// SAVE TO FS: writes pk/vk. Never generates, never overwrites.
-        pub fn $write(
-            dir: &Path,
-            pk: &ProvingKey<Bn254>,
-            vk: &VerifyingKey<Bn254>,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            std::fs::create_dir_all(dir)?;
-            write_new(&dir.join(concat!($prefix, "_g16_pk.bin")), &to_bytes(pk)?)?;
-            write_new(&dir.join(concat!($prefix, "_g16_vk.bin")), &to_bytes(vk)?)?;
-            Ok(())
-        }
-
-        /// LOAD FROM FS. Never generates.
-        pub fn $read(
-            dir: &Path,
-        ) -> Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), Box<dyn std::error::Error>> {
-            let pk = ProvingKey::<Bn254>::deserialize_uncompressed(
-                &mut read_bytes(&dir.join(concat!($prefix, "_g16_pk.bin")))?.as_slice(),
-            )?;
-            let vk = VerifyingKey::<Bn254>::deserialize_uncompressed(
-                &mut read_bytes(&dir.join(concat!($prefix, "_g16_vk.bin")))?.as_slice(),
-            )?;
-            Ok((pk, vk))
-        }
-
-        /// SAVE TO MEMORY: process-wide cache over the fs load. Never generates.
-        pub fn $cached()
-        -> Result<&'static (ProvingKey<Bn254>, VerifyingKey<Bn254>), Box<dyn std::error::Error>> {
-            static CACHE: std::sync::OnceLock<
-                Result<(ProvingKey<Bn254>, VerifyingKey<Bn254>), String>,
-            > = std::sync::OnceLock::new();
-            CACHE
-                .get_or_init(|| $read(Path::new(ARTIFACTS_DIR)).map_err(|e| e.to_string()))
-                .as_ref()
-                .map_err(|e| e.clone().into())
-        }
-
-        /// RENDER: standalone Groth16 Solidity verifier from a verifying key. No fs.
-        pub fn $render(vk: &VerifyingKey<Bn254>) -> Result<String, Box<dyn std::error::Error>> {
-            let g16_vk = Groth16VerifierKey::from(vk.clone());
-            Ok(String::from_utf8(g16_vk.render_as_template(None))?)
-        }
-    };
-}
-
-groth16_artifact_set!(
-    "single_root_transition",
-    SingleRootTransitionCircuit,
-    create = create_single_root_params,
-    read = read_single_root_params,
-    write = write_single_root_params,
-    cached = cached_single_root_params,
-    render_verifier = render_single_root_transition_verifier
-);
-
 // ---- proving ----
 
 macro_rules! prove_for {
@@ -381,23 +308,32 @@ macro_rules! render_decider_verifier_for {
 render_decider_verifier_for!(render_root_transition_verifier, RootDeciderVp, 3);
 render_decider_verifier_for!(render_withdraw_verifier, WithdrawDeciderVp, 4);
 
-/// Prove a one-leaf root transition. Returns (proof, public_inputs).
-pub fn prove_single_root_transition(
-    circuit: SingleRootTransitionCircuit,
-) -> Result<(ark_groth16::Proof<Bn254>, Vec<Fr>), Box<dyn std::error::Error>> {
-    let params = cached_single_root_params()?;
-    let mut rng = ark_std::rand::rngs::OsRng;
-    let public_inputs = vec![
-        circuit.z_0[0],
-        circuit.z_0[1],
-        circuit.z_0[2],
-        circuit.z_1[0],
-        circuit.z_1[1],
-        circuit.z_1[2],
-    ];
-    let proof = Groth16::<Bn254>::prove(&params.0, circuit, &mut rng)?;
-    Ok((proof, public_inputs))
+macro_rules! decider_circuit_for {
+    ($name:ident, $fc:ty, $n:ty, $state_len:expr) => {
+        pub fn $name() -> Result<DeciderEthCircuit<G1, G2>, Box<dyn std::error::Error>> {
+            let f_circuit = <$fc>::new(())?;
+            let poseidon_config = poseidon_canonical_config::<Fr>();
+            let mut rng = ark_std::rand::rngs::OsRng;
+            let prep = PreprocessorParam::new(poseidon_config, f_circuit.clone());
+            let (nova_pp, nova_vp) =
+                <$n as FoldingScheme<G1, G2, $fc>>::preprocess(&mut rng, &prep)?;
+
+            Ok(DeciderEthCircuit::<G1, G2>::dummy((
+                nova_vp.r1cs,
+                nova_vp.cf_r1cs,
+                nova_pp.cf_cs_pp,
+                nova_pp.poseidon_config,
+                (),
+                (),
+                $state_len,
+                2,
+            )))
+        }
+    };
 }
+
+decider_circuit_for!(root_decider_circuit, RootTransitionCircuit, RootN, 3);
+decider_circuit_for!(withdraw_decider_circuit, WithdrawCircuit, WithdrawN, 4);
 
 #[cfg(test)]
 mod tests {
