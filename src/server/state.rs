@@ -5,7 +5,8 @@ use ark_bn254::{Fq, Fr};
 use ark_grumpkin::Projective as G2;
 
 use crate::server::db::Settings;
-use crate::tree::{HashChain, MerkleTree, TREE_DEPTH};
+use crate::tree::{HashChain, MerkleTree};
+use crate::zkp::TREE_DEPTH;
 
 #[derive(Clone)]
 pub struct State {

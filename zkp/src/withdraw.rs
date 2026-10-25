@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
-use crate::zkp::{merkle_root_var, poseidon2_var};
-use crate::{tree::TREE_DEPTH, zkp::poseidon3_var};
+use crate::{TREE_DEPTH, poseidon3_var};
+use crate::{merkle_root_var, poseidon2_var};
 use ark_bn254::{Fq, Fr};
 use ark_ec::PrimeGroup;
 use ark_ff::{BigInteger, PrimeField, Zero};

@@ -27,7 +27,7 @@ use ark_bn254::{Fq, Fr};
 use ark_ff::Zero; // replace `use ark_bn254::Fr;` with the line above
 use std::time::Instant;
 
-use crate::tree::TREE_DEPTH;
+use crate::zkp::TREE_DEPTH;
 use crate::zkp::{
     RootTransitionCircuit, RootTransitionWitness, WithdrawCircuit, WithdrawWitness, poseidon2,
     prove_root_transition, prove_withdraw,

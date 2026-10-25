@@ -21,7 +21,8 @@ use tracing::info;
 use zetta::config::Network;
 use zetta::server::db::fr_to_u256;
 use zetta::server::wallet::Wallet;
-use zetta::tree::{MerkleTree, TREE_DEPTH};
+use zetta::tree::MerkleTree;
+use zetta::zkp::TREE_DEPTH;
 
 sol! {
     interface IAdmin {

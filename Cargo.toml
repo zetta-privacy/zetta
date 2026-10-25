@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 default-run = "zetta"
 
-[dependencies]
+[workspace]
+members = ["zkp"]
+
+[workspace.dependencies]
 hex = "0.4"
 light-poseidon = "0.4"
 ark-bn254 = "0.5"
@@ -45,14 +48,50 @@ dotenv = "0.15"
 axum = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres"] }
-
-# Nova folding (sonobe fork, matches zERC20 reference)
 folding-schemes = { git = "https://github.com/kbizikav/sonobe", rev = "9f201b8b77eed8dfdb464304d3a4d624b5f5f2dd", default-features = false }
 solidity-verifiers = { git = "https://github.com/kbizikav/sonobe", rev = "9f201b8b77eed8dfdb464304d3a4d624b5f5f2dd", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 privy-rs = "=0.1.0-alpha.6"
 
+[dependencies]
+hex = { workspace = true }
+light-poseidon = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
+ark-std = { workspace = true }
+sha3 = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+ark-grumpkin = { workspace = true }
+ark-groth16 = { workspace = true }
+ark-ec = { workspace = true }
+ark-serialize = { workspace = true }
+ark-poly = { workspace = true }
+ark-r1cs-std = { workspace = true }
+ark-relations = { workspace = true }
+ark-crypto-primitives = { workspace = true }
+ark-snark = { workspace = true }
+num-bigint = { workspace = true }
+anyhow = { workspace = true }
+rand_chacha = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+alloy = { workspace = true }
+tokio = { workspace = true }
+futures-util = { workspace = true }
+clap = { workspace = true }
+dotenv = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true }
+folding-schemes = { workspace = true }
+solidity-verifiers = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+privy-rs = { workspace = true }
+zkp = { path = "zkp" }
 
 [patch.crates-io]
 # groth16 is vendored at vendor/groth16 (arkworks-rs/groth16 @ b3b4a15, with its
@@ -81,3 +120,4 @@ ark-bls12-381 = { git = "https://github.com/arkworks-rs/algebra", rev = "c1f4f56
 [dev-dependencies]
 tracing = "0.1"
 tracing-subscriber = "0.3"
+zkp = { path = "zkp" }

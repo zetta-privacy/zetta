@@ -5,8 +5,6 @@ use ark_ff::Zero;
 
 use crate::zkp::{poseidon2, poseidon3};
 
-pub const TREE_DEPTH: usize = 32;
-
 /// Append-only Poseidon binary Merkle tree with all levels materialized.
 /// levels[0] = leaves … levels[depth] = [root]. Proof queries are O(depth),
 /// at the cost of 2^(depth+1)-1 stored nodes when full.
@@ -136,6 +134,7 @@ impl HashChain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::zkp::TREE_DEPTH;
 
     /// Verify a Merkle proof for `leaf` at `index` against `root`.
     pub fn verify_proof(leaf: Fr, index: usize, proof: &[Fr], root: Fr) -> bool {

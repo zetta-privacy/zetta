@@ -22,9 +22,9 @@ contract Verifier {
     uint256 public reservedIndex;
     uint256 public reservedHashChain;
 
-    uint256 public startingRoot;
-    uint256 public startingIndex;
-    uint256 public startingHashChain;
+    uint256 public startRoot;
+    uint256 public startIndex;
+    uint256 public startHashChain;
 
     mapping(uint256 => uint256) public totalWithdrawn; // recipient => lifetime sum already minted
     mapping(uint256 => uint256) public withdrawnIndex;
@@ -68,11 +68,11 @@ contract Verifier {
         reservedHashChain = token.burnHashChain();
     }
 
-    function updateStartingHashChain() external onlyOwner {
+    function updateStartHashChain() external onlyOwner {
         require(reservedIndex - transferIndex >= 2, "reserved not advanced enough");
-        startingIndex = transferIndex;
-        startingHashChain = transferHashChain;
-        startingRoot = transferRoot;
+        startIndex = transferIndex;
+        startHashChain = transferHashChain;
+        startRoot = transferRoot;
     }
 
     /// proof = [i, z0[0..3], zi[0..3], 25 decider elements]
@@ -86,9 +86,9 @@ contract Verifier {
         uint256 newRoot = proof[6];
 
         // starting index is updated manually
-        require(prevIndex == startingIndex, "stale index");
-        require(prevHashChain == startingHashChain, "stale hash chain");
-        require(prevRoot == startingRoot, "stale root");
+        require(prevIndex == startIndex, "stale index");
+        require(prevHashChain == startHashChain, "stale hash chain");
+        require(prevRoot == startRoot, "stale root");
 
         // newly computed params check
         require(newIndex > prevIndex, "no progress");

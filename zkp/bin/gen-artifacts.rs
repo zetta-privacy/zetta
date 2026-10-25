@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use zetta::zkp::{
+use zetta::{
     ARTIFACTS_DIR, create_root_params, create_withdraw_params, write_root_params,
     write_withdraw_params,
 };
