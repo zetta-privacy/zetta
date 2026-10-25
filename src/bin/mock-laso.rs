@@ -1484,6 +1484,6 @@ mod tests {
 
     #[test]
     fn readable_timestamp_format() {
-        assert_eq!(readable(1_774_000_000_000), "3/23/2026, 7:46:40 AM");
+        assert_eq!(readable(1_774_000_000_000), "3/20/2026, 9:46:40 AM");
     }
 }
