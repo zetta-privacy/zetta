@@ -2,8 +2,6 @@ mod poseidon;
 mod update_root;
 mod withdraw;
 
-pub mod test;
-
 use ark_bn254::{Bn254, Fr, G1Projective as G1};
 use ark_groth16::Groth16;
 use ark_grumpkin::Projective as G2;
