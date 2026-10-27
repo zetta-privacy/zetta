@@ -1,5 +1,5 @@
 mod poseidon;
-mod update_root;
+mod root;
 mod withdraw;
 
 use ark_bn254::{Bn254, Fr, G1Projective as G1};
@@ -10,6 +10,7 @@ use folding_schemes::commitment::kzg::KZG;
 use folding_schemes::commitment::pedersen::Pedersen;
 use folding_schemes::folding::nova::decider_eth::Decider as DeciderEth;
 use folding_schemes::folding::nova::decider_eth::DeciderEthCircuit;
+use folding_schemes::folding::nova::decider_eth::VerifierParam;
 use folding_schemes::folding::nova::{Nova, PreprocessorParam};
 use folding_schemes::folding::traits::Dummy;
 use folding_schemes::frontend::FCircuit;
@@ -19,7 +20,7 @@ use std::path::{Path, PathBuf};
 use tracing::info;
 
 pub use poseidon::*;
-pub use update_root::*;
+pub use root::*;
 pub use withdraw::*;
 
 use solidity_verifiers::NovaCycleFoldVerifierKey;
@@ -31,8 +32,8 @@ use solidity_verifiers::verifiers::nova_cyclefold::get_decider_template_for_cycl
 pub const ARTIFACTS_DIR: &str = "artifacts";
 pub const TREE_DEPTH: usize = 32;
 
-type RootN = Nova<G1, G2, RootTransitionCircuit, KZG<'static, Bn254>, Pedersen<G2>, false>;
-type RootD = DeciderEth<
+pub type RootN = Nova<G1, G2, RootTransitionCircuit, KZG<'static, Bn254>, Pedersen<G2>, false>;
+pub type RootD = DeciderEth<
     G1,
     G2,
     RootTransitionCircuit,
@@ -41,8 +42,8 @@ type RootD = DeciderEth<
     Groth16<Bn254>,
     RootN,
 >;
-type WithdrawN = Nova<G1, G2, WithdrawCircuit, KZG<'static, Bn254>, Pedersen<G2>, false>;
-type WithdrawD = DeciderEth<
+pub type WithdrawN = Nova<G1, G2, WithdrawCircuit, KZG<'static, Bn254>, Pedersen<G2>, false>;
+pub type WithdrawD = DeciderEth<
     G1,
     G2,
     WithdrawCircuit,
@@ -335,3 +336,99 @@ macro_rules! decider_circuit_for {
 
 decider_circuit_for!(root_decider_circuit, RootTransitionCircuit, RootN, 3);
 decider_circuit_for!(withdraw_decider_circuit, WithdrawCircuit, WithdrawN, 4);
+
+macro_rules! setup_struct {
+    ($name:ident, $fc:ty, $n:ty, $d:ty, $holder:ident, $state_len:expr) => {
+        pub struct $name {
+            pub nova_pp: <$n as FoldingScheme<G1, G2, $fc>>::ProverParam,
+            pub nova_vp: <$n as FoldingScheme<G1, G2, $fc>>::VerifierParam,
+        }
+
+        impl $name {
+            pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+                let f_circuit = <$fc>::new(())?;
+                let poseidon_config = poseidon_canonical_config::<Fr>();
+                let mut rng = ark_std::rand::rngs::OsRng;
+                let prep = PreprocessorParam::new(poseidon_config, f_circuit);
+                let (nova_pp, nova_vp) =
+                    <$n as FoldingScheme<G1, G2, $fc>>::preprocess(&mut rng, &prep)?;
+                Ok(Self { nova_pp, nova_vp })
+            }
+
+            pub fn decider_circuit(&self) -> DeciderEthCircuit<G1, G2> {
+                DeciderEthCircuit::<G1, G2>::dummy((
+                    self.nova_vp.r1cs.clone(),
+                    self.nova_vp.cf_r1cs.clone(),
+                    self.nova_pp.cf_cs_pp.clone(),
+                    self.nova_pp.poseidon_config.clone(),
+                    (),
+                    (),
+                    $state_len,
+                    2,
+                ))
+            }
+
+            pub fn finish(
+                self,
+                pk: <Groth16<Bn254> as ark_snark::SNARK<Fr>>::ProvingKey,
+                vk: <Groth16<Bn254> as ark_snark::SNARK<Fr>>::VerifyingKey,
+            ) -> $holder {
+                let pp_hash = self.nova_vp.pp_hash().unwrap();
+                let decider_pp = (pk, self.nova_pp.cs_pp.clone());
+                let decider_vp = VerifierParam {
+                    pp_hash,
+                    snark_vp: vk,
+                    cs_vp: self.nova_vp.cs_vp.clone(),
+                };
+                $holder {
+                    nova_params: (self.nova_pp, self.nova_vp),
+                    decider_pp,
+                    decider_vp,
+                }
+            }
+
+            pub fn save(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+                use ark_serialize::CanonicalSerialize;
+                let mut buf = vec![];
+                self.nova_pp.serialize_uncompressed(&mut buf)?;
+                self.nova_vp.serialize_uncompressed(&mut buf)?;
+                std::fs::write(path, buf)?;
+                Ok(())
+            }
+
+            pub fn load(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+                use ark_serialize::CanonicalDeserialize;
+                let bytes = std::fs::read(path)?;
+                let mut reader = &bytes[..];
+                let nova_pp =
+                    <$n as FoldingScheme<G1, G2, $fc>>::ProverParam::deserialize_uncompressed(
+                        &mut reader,
+                    )?;
+                let nova_vp = <$n as FoldingScheme<G1, G2, $fc>>::vp_deserialize_with_mode(
+                    &mut reader,
+                    ark_serialize::Compress::No,
+                    ark_serialize::Validate::No,
+                    (),
+                )?;
+                Ok(Self { nova_pp, nova_vp })
+            }
+        }
+    };
+}
+
+setup_struct!(
+    RootSetup,
+    RootTransitionCircuit,
+    RootN,
+    RootD,
+    RootParams,
+    3
+);
+setup_struct!(
+    WithdrawSetup,
+    WithdrawCircuit,
+    WithdrawN,
+    WithdrawD,
+    WithdrawParams,
+    4
+);
