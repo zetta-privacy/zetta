@@ -38,6 +38,9 @@ sol! {
         function updateRoot(uint256[32] proof) external;
         function updateRootSingle(uint256[2] pA, uint256[2][2] pB, uint256[2] pC, uint256[6] pubSignals) external;
         function withdraw(uint256 chainId, address addr, bytes32 tweak, uint256[34] proof) external;
+        function updateStartHashChain() external;
+        function tweak() external view returns (uint256);
+        function rotateTweak() external;
     }
 }
 

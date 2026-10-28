@@ -1,11 +1,12 @@
+use alloy::primitives::U256;
 use alloy::providers::{Provider, ProviderBuilder};
 use std::sync::{Arc, Mutex};
 
-use zetta::config::Config;
+use zetta::config::{Config, load_settings};
 use zetta::server::db::Db;
 use zetta::server::state::State;
 use zetta::server::wallet::Wallet;
-use zetta::server::{AppState, SharedState, api, worker};
+use zetta::server::{AppState, IVerifier, SharedState, api, worker};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,11 +40,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider = ProviderBuilder::new().connect_http(config.rpc_url.parse()?);
 
     let db = Db::open(&config.database_url).await?;
-    let settings = db.load_settings().await?;
+    let settings = load_settings()?;
 
+    let tweak: U256 = IVerifier::new(config.verifier, provider.clone())
+        .tweak()
+        .call()
+        .await?;
     let state: SharedState = Arc::new(Mutex::new(State::new(
         config.chain_id,
         exchange_addr,
+        tweak.to_be_bytes::<32>(),
         &settings,
     )?));
     worker::log_recipient(&state);

@@ -33,6 +33,7 @@ contract Verifier {
     IWithdrawVerifier public withdrawVerifier;
 
     address public owner;
+    uint256 public tweak;
 
     uint256 private constant HASH_CHAIN_MASK = (1 << 246) - 1;
     uint256 private constant TREE_CAPACITY = 1 << 32;
@@ -75,6 +76,10 @@ contract Verifier {
         startRoot = transferRoot;
     }
 
+    function rotateTweak() external onlyOwner {
+        tweak += 1;
+    }
+
     /// proof = [i, z0[0..3], zi[0..3], 25 decider elements]
     /// z0 = [prevIndex, prevHashChain, prevRoot], zi = [newIndex, newHashChain, newRoot]
     function updateRoot(uint256[32] calldata proof) external {
@@ -104,10 +109,10 @@ contract Verifier {
 
     /// proof = [i, z0[0..4], zi[0..4], 25 decider elements]
     /// z0[0] is the fold's start index — ordering token only, not checked here.
-    function withdraw(uint256 chainId, address addr, bytes32 tweak, uint256[34] calldata proof) external {
+    function withdraw(uint256 chainId, address addr, bytes32 _tweak, uint256[34] calldata proof) external {
         require(chainId == block.chainid, "wrong chain");
 
-        uint256 recipient = computeRecipient(chainId, addr, tweak);
+        uint256 recipient = computeRecipient(chainId, addr, _tweak);
 
         uint256 prevIndex = proof[1];
         uint256 prevSum = proof[2];
@@ -131,7 +136,7 @@ contract Verifier {
         token.teleport(addr, delta);
     }
 
-    function computeRecipient(uint256 chainId, address addr, bytes32 tweak)
+    function computeRecipient(uint256 chainId, address addr, bytes32 _tweak)
         public
         pure
         returns (uint256)
@@ -141,7 +146,7 @@ contract Verifier {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint64 cid = uint64(chainId);
         // forge-lint: disable-next-line(asm-keccak256)
-        bytes32 h = keccak256(abi.encodePacked(cid, addr, tweak));
+        bytes32 h = keccak256(abi.encodePacked(cid, addr, _tweak));
         return uint256(h) & HASH_CHAIN_MASK;
     }
 }

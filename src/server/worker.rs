@@ -15,7 +15,7 @@ use folding_schemes::frontend::FCircuit;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
-use crate::burn::{address_to_fr, recipient};
+use crate::burn::{address_to_fr, fr_to_bytes32, recipient, tweak_to_fr};
 use crate::config::Config;
 use crate::server::db::{Db, fr_to_u256};
 use crate::server::state::State;
@@ -24,7 +24,7 @@ use crate::server::{BurnStep, IToken, IVault, IVerifier, SharedState, u256_to_fr
 
 use alloy::primitives::B256;
 use ark_bn254::{Fq, Fr};
-use ark_ff::Zero; // replace `use ark_bn254::Fr;` with the line above
+use ark_ff::{One, Zero}; // replace `use ark_bn254::Fr;` with the line above
 use std::time::Instant;
 
 use crate::zkp::TREE_DEPTH;
@@ -56,15 +56,6 @@ pub async fn run(
     // Boot: full replay from the deployment block; afterwards incremental.
     let mut last_block = config.last_block;
     loop {
-        // Load settings
-        match db.load_settings().await {
-            Ok(s) => {
-                state.lock().unwrap().apply_settings(&s);
-            }
-            Err(e) => {
-                warn!(stage = "settings", error = %e, "settings reload failed; keeping current")
-            }
-        }
         // Phase 1: catch the mirror up to the finalized prefix [0..transferIndex).
         let mut next = state.lock().unwrap().clone(); // shared slot untouched on failure
         let p = prepare(&mut next, provider, config, db, last_block).await?;
@@ -81,7 +72,21 @@ pub async fn run(
 
         // Phase 2: reserve at the tip, then process the fresh chunk.
         reserve(provider, wallet, config).await?;
-        process(state, provider, wallet, config, db, last_block).await?;
+        advance_start_hash_chain(provider, wallet, config).await?;
+        if let Some(work) = process_update_root(state, provider, wallet, config, last_block).await?
+        {
+            let tweak_fr = tweak_to_fr(work.tweak);
+            if tweak_fr > Fr::zero() {
+                let prev_tweak = tweak_fr - Fr::one();
+                process_withdraws(&work, provider, wallet, config, prev_tweak).await?;
+            }
+
+            let count = process_withdraws(&work, provider, wallet, config, tweak_fr).await?;
+
+            if count as u64 > work.rotate_threshold {
+                rotate_tweak(provider, wallet, config).await?;
+            }
+        }
 
         // Phase 3: run payouts separately.
         if let Err(e) = payouts(provider, wallet, config, db).await {
@@ -116,6 +121,8 @@ async fn prepare(
     from_block: u64,
 ) -> Result<Prepared, Box<dyn std::error::Error>> {
     let verifier = IVerifier::new(config.verifier, provider);
+    let tweak: U256 = verifier.tweak().call().await?;
+    s.tweak = tweak.to_be_bytes::<32>();
 
     // Chain facts, all at the same block: what the contract has already
     // processed + the epoch target pinned by `reserve`.
@@ -157,35 +164,26 @@ async fn prepare(
     })
 }
 
-/// Phase 2 — interval processing. Commits the epoch's transfers (updateRoot)
-/// and teleports proven deposits of registered addresses (withdraw), all on
-/// an isolated copy of the shared state, dropped on return. Every input is
-/// read here: reservation, watermark and events from chain, state from the
-/// shared slot.
-async fn process(
+async fn process_update_root(
     state: &SharedState,
     provider: &impl Provider,
     wallet: &Wallet,
     config: &Config,
-    db: &Db,
-    from_block: u64, // last prepared block; events after it start at `proven`
-) -> Result<(), Box<dyn std::error::Error>> {
+    from_block: u64,
+) -> Result<Option<State>, Box<dyn std::error::Error>> {
     let verifier = IVerifier::new(config.verifier, provider);
-    let mut work = state.lock().unwrap().clone(); // isolated copy — discarded at return
+    let mut work = state.lock().unwrap().clone();
 
-    // ---- epoch: prove transfers[proven..reserved_index] and advance the root ----
     let reserved_index: u64 = verifier.reservedIndex().call().await?.try_into()?;
     let reserved_chain = u256_to_fr(verifier.reservedHashChain().call().await?);
     let proven = work.chain.index();
 
     if proven >= reserved_index {
-        return Ok(());
+        return Ok(None);
     }
 
     let z_0 = vec![Fr::from(proven), work.chain.state(), work.tree.root()];
 
-    // Fetched AFTER the reserve mined, so the window contains the reserved
-    // chain value; the walk stops exactly at it — including mid-block.
     let latest = provider.get_block_number().await?;
     let events = fetch_chain_events(provider, config.token, from_block, latest).await?;
     let mut witnesses = Vec::new();
@@ -212,14 +210,24 @@ async fn process(
             witnesses = witnesses.len(),
             "need >=2 witnesses for a batch; deferring"
         );
-        return Ok(());
+        return Ok(None);
     }
+
     submit_update_root(wallet, provider, config, z_0, witnesses).await?;
 
-    // ---- withdraws: fold all reposits for a given recipient in the current namespace ----
-    let recip = recipient(work.chain_id, work.exchange_addr, work.tweak);
-    let Some(witnesses) = withdraw_witnesses(&work, recip) else {
-        return Ok(());
+    Ok(Some(work))
+}
+
+async fn process_withdraws(
+    work: &State,
+    provider: &impl Provider,
+    wallet: &Wallet,
+    config: &Config,
+    tweak: Fr,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let recip = recipient(work.chain_id, work.exchange_addr, fr_to_bytes32(tweak));
+    let Some(witnesses) = withdraw_witnesses(work, recip) else {
+        return Ok(0);
     };
     let count = witnesses.len();
 
@@ -228,24 +236,28 @@ async fn process(
             stage = "withdraw",
             count, "need >=2 receipts for a batch; deferring"
         );
-        return Ok(());
+        return Ok(count);
     }
 
-    let z_0 = vec![
-        Fr::zero(),       // z_0[0] = indexWithOffset (always 0)
-        Fr::zero(),       // z_0[1] = totalValue base (always 0)
-        work.tree.root(), // z_0[2] = transferRoot
-        recip,            // z_0[3] = recipient
-    ];
+    // Guard: skip the proof if the total is unchanged — everything already withdrawn.
+    let total = witnesses
+        .iter()
+        .fold(U256::ZERO, |acc, w| acc + fr_to_u256(w.value));
+    let already = IVerifier::new(config.verifier, provider)
+        .totalWithdrawn(fr_to_u256(recip))
+        .call()
+        .await?;
+    if total <= already {
+        debug!(stage = "withdraw", count, "total unchanged — skip");
+        return Ok(count);
+    }
 
-    submit_withdraws(wallet, provider, config, &work, z_0, witnesses).await?;
+    let z_0 = vec![Fr::zero(), Fr::zero(), work.tree.root(), recip];
+
+    submit_withdraws(wallet, provider, config, work, z_0, witnesses, tweak).await?;
     unwrap_after_withdraw(provider, wallet, config).await?;
 
-    if count as u64 > work.rotate_threshold {
-        rotate_tweak(db).await?;
-    }
-
-    Ok(())
+    Ok(count)
 }
 
 /// Phase 3 — payouts: settle DB 'pending' user withdraws as token transfers.
@@ -339,6 +351,7 @@ async fn submit_withdraws(
     work: &State,
     z_0: Vec<Fr>,
     witnesses: Vec<WithdrawWitness>,
+    tweak: Fr,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         stage = "withdraw",
@@ -359,7 +372,7 @@ async fn submit_withdraws(
     let call = verifier.withdraw(
         U256::from(work.chain_id),
         Address::from(work.exchange_addr),
-        B256::from(work.tweak),
+        B256::from(fr_to_bytes32(tweak)),
         proof,
     );
     let rc = send_and_confirm(wallet, provider, config.verifier, call.calldata().clone()).await?;
@@ -595,8 +608,35 @@ pub fn log_recipient(state: &SharedState) {
     info!(stage = "boot", recipient = %r, "exchange recipient");
 }
 
-async fn rotate_tweak(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
-    let next = db.rotate_tweak().await?;
-    info!(stage = "rotate", tweak = %next, "tweak rotated");
+async fn rotate_tweak(
+    provider: &impl Provider,
+    wallet: &Wallet,
+    config: &Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let verifier = IVerifier::new(config.verifier, provider);
+    let call = verifier.rotateTweak();
+    let rc = send_and_confirm(wallet, provider, config.verifier, call.calldata().clone()).await?;
+    info!(stage = "rotate", tx = %rc.transaction_hash, "tweak rotated");
+    Ok(())
+}
+
+async fn advance_start_hash_chain(
+    provider: &impl Provider,
+    wallet: &Wallet,
+    config: &Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let verifier = IVerifier::new(config.verifier, provider);
+    let reserved: u64 = verifier.reservedIndex().call().await?.try_into()?;
+    let transfer: u64 = verifier.transferIndex().call().await?.try_into()?;
+    if reserved.saturating_sub(transfer) < 2 {
+        debug!(
+            stage = "advance_start",
+            reserved, transfer, "headroom < 2 — skip"
+        );
+        return Ok(());
+    }
+    let call = verifier.updateStartHashChain();
+    let rc = send_and_confirm(wallet, provider, config.verifier, call.calldata().clone()).await?;
+    debug!(stage = "advance_start", tx = %rc.transaction_hash, "start hash chain advanced");
     Ok(())
 }

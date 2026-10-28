@@ -29,6 +29,19 @@ pub fn address_to_fr(address: [u8; 20]) -> Fr {
     Fr::from_be_bytes_mod_order(&b)
 }
 
+/// Interpret a 32-byte tweak (big-endian) as a Fr field element.
+pub fn tweak_to_fr(tweak: [u8; 32]) -> Fr {
+    Fr::from_be_bytes_mod_order(&tweak)
+}
+
+/// Big-endian 32-byte encoding of a Fr field element.
+pub fn fr_to_bytes32(f: Fr) -> [u8; 32] {
+    f.into_bigint()
+        .to_bytes_be()
+        .try_into()
+        .expect("Fr is 32 bytes")
+}
+
 #[cfg(test)]
 mod tests {
     use ark_ec::{CurveGroup, PrimeGroup};

@@ -1,4 +1,22 @@
 use alloy::primitives::Address;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Settings {
+    pub rotate_threshold: u64,
+    pub tweak: u64,
+    pub poll_interval_secs: u64,
+    pub max_users: i64,
+    pub max_cards_per_user: i64,
+    pub card_limit_window_days: i64,
+}
+
+const SETTINGS_PATH: &str = "settings.json";
+
+pub fn load_settings() -> Result<Settings, Box<dyn std::error::Error>> {
+    let s = std::fs::read_to_string(SETTINGS_PATH)?;
+    Ok(serde_json::from_str(&s)?)
+}
 
 #[derive(Clone, Copy)]
 pub enum Network {
@@ -75,6 +93,8 @@ pub struct Config {
     pub privy_app_secret: String,
     pub privy_wallet_id: String,
     pub wallet_address: Address,
+    // Settings
+    pub settings: Settings,
 }
 
 impl Config {
@@ -96,6 +116,7 @@ impl Config {
             port: cli.network.port(),
             chain_id,
             last_block: deployment_block(chain_id, "zERC20")?,
+            settings: load_settings()?,
         })
     }
 }

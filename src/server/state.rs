@@ -4,7 +4,7 @@ use alloy::primitives::U256;
 use ark_bn254::{Fq, Fr};
 use ark_grumpkin::Projective as G2;
 
-use crate::server::db::Settings;
+use crate::config::Settings;
 use crate::tree::{HashChain, MerkleTree};
 use crate::zkp::TREE_DEPTH;
 
@@ -43,6 +43,7 @@ impl State {
     pub fn new(
         chain_id: u64,
         exchange_addr: [u8; 20],
+        tweak: [u8; 32],
         settings: &Settings,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
@@ -50,7 +51,7 @@ impl State {
             chain: HashChain::new(),
             chain_id,
             exchange_addr,
-            tweak: settings.tweak,
+            tweak,
             pubkey_by_addr: HashMap::new(),
             recipient_by_addr: HashMap::new(),
             sig_by_addr: HashMap::new(),
@@ -69,7 +70,6 @@ impl State {
     /// Hot-apply DB-backed settings; reloaded by the worker each tick.
     pub fn apply_settings(&mut self, s: &Settings) {
         self.rotate_threshold = s.rotate_threshold;
-        self.tweak = s.tweak;
         self.max_users = s.max_users;
         self.max_cards_per_user = s.max_cards_per_user;
         self.card_limit_window_days = s.card_limit_window_days;

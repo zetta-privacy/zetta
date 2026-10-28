@@ -1,0 +1,7 @@
+{
+  "card_limit_window_days": 7,
+  "max_cards_per_user": 2,
+  "max_users": 10,
+  "poll_interval_secs": 60,
+  "rotate_threshold": 100
+}
