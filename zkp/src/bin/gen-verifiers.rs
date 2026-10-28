@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use zetta::{
+use zkp::{
     ARTIFACTS_DIR, read_root_params, read_withdraw_params, render_root_transition_verifier,
     render_withdraw_verifier,
 };

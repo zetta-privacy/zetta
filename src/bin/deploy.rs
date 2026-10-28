@@ -28,7 +28,7 @@ sol! {
     interface IAdmin {
         function setMinter(address m) external;
         function setVerifier(address v) external;
-        function setVerifiers(address root, address withdraw, address singleRoot) external;
+        function setVerifiers(address root, address withdraw) external;
         function transferOwnership(address newOwner) external;
         function owner() external view returns (address);
         function rootTransitionVerifier() external view returns (address);
@@ -317,17 +317,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut receipts,
     )
     .await?;
-    let single_root_v = deploy(
-        &wallet,
-        &provider,
-        "SingleRootTransitionVerifier",
-        "Groth16Verifier",
-        &libs,
-        vec![],
-        &mut txs,
-        &mut receipts,
-    )
-    .await?;
 
     // 5. Verifier
     let verifier = deploy(
@@ -351,7 +340,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         IAdmin::setVerifiersCall {
             root: root_v,
             withdraw: withdraw_v,
-            singleRoot: single_root_v,
         }
         .abi_encode(),
     )
@@ -417,14 +405,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         verifier,
         IAdmin::withdrawVerifierCall {}.abi_encode(),
         withdraw_v,
-    )
-    .await?;
-    expect_addr(
-        &provider,
-        "Verifier.singleRootTransitionVerifier",
-        verifier,
-        IAdmin::singleRootTransitionVerifierCall {}.abi_encode(),
-        single_root_v,
     )
     .await?;
     expect_addr(
