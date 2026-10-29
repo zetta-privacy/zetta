@@ -123,10 +123,6 @@ async fn register_inner(app: &AppState, req: RegisterReq) -> Result<(), String> 
         return Err("degenerate pubkey".into());
     }
 
-    if is_blacklisted(app, pk.x).await? {
-        return Err("blacklisted address".into());
-    }
-
     let z = parse_decimal_fq(&req.sig_z)?;
     let salt = parse_decimal_fr(&req.salt)?;
 
@@ -208,10 +204,6 @@ async fn balance(AxumState(app): AxumState<AppState>, Path(pk): Path<String>) ->
         Ok(v) => v,
         Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
     };
-    let blacklisted = match is_blacklisted(&app, pk_x).await {
-        Ok(b) => b,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
-    };
     let deposited = {
         let s = app.state.lock().unwrap();
         let mut total = U256::ZERO;
@@ -224,12 +216,7 @@ async fn balance(AxumState(app): AxumState<AppState>, Path(pk): Path<String>) ->
     };
     match app.db.total_spent(pk_x).await {
         Ok(spent) => {
-            let balance = if blacklisted {
-                U256::ZERO
-            } else {
-                deposited.saturating_sub(spent)
-            };
-
+            let balance = deposited.saturating_sub(spent);
             Json(serde_json::json!({
                 "pubkey_x": pk,
                 "deposited": deposited.to_string(),
@@ -263,10 +250,6 @@ async fn order_card(
 
 async fn order_card_inner(app: &AppState, req: CardOrderReq) -> Result<serde_json::Value, String> {
     let pk_x = parse_decimal_fr(&req.pubkey_x)?;
-    if is_blacklisted(app, pk_x).await? {
-        return Err("blacklisted address".into());
-    }
-
     let amount = parse_decimal_fr(&req.amount)?;
     let r = G2Affine::new_unchecked(
         parse_decimal_fr(&req.sig_r.0)?,
@@ -464,10 +447,6 @@ async fn request_withdraw(
 
 async fn withdraw_inner(app: &AppState, req: WithdrawReq) -> Result<serde_json::Value, String> {
     let pk_x = parse_decimal_fr(&req.pubkey_x)?;
-    if is_blacklisted(app, pk_x).await? {
-        return Err("blacklisted address".into());
-    }
-
     let amount = parse_decimal_fr(&req.amount)?;
     let destination = parse_hex20(&req.destination)?;
     let r = G2Affine::new_unchecked(
@@ -598,18 +577,4 @@ async fn deposits_by_user_id(
     };
     let s = app.state.lock().unwrap();
     Json(serde_json::json!({ "deposits": deposit_rows(&s, pk_x) })).into_response()
-}
-
-/// True if any funding address that has sent to one of `pk_x`'s burn addresses
-/// is on the blacklist.
-async fn is_blacklisted(app: &AppState, pk_x: Fr) -> Result<bool, String> {
-    let blacklist = app.db.blacklist().await.map_err(|e| e.to_string())?;
-    if blacklist.is_empty() {
-        return Ok(false);
-    }
-    let s = app.state.lock().unwrap();
-    Ok(s.deposits.iter().any(|(addr, deposits)| {
-        s.pubkey_by_addr.get(addr).map(|p| p.into_affine().x) == Some(pk_x)
-            && deposits.iter().any(|(f, _, _)| blacklist.contains(f))
-    }))
 }

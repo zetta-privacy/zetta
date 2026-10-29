@@ -674,20 +674,6 @@ impl Db {
         Ok(out)
     }
 
-    /// All blacklisted sender addresses.
-    pub async fn blacklist(&self) -> Result<Vec<[u8; 20]>, sqlx::Error> {
-        let rows = sqlx::query("SELECT address FROM blacklist")
-            .fetch_all(&self.0)
-            .await?;
-        rows.iter()
-            .map(|r| {
-                let v: Vec<u8> = r.try_get("address")?;
-                v.try_into()
-                    .map_err(|_| sqlx::Error::Decode("bad blacklist address length".into()))
-            })
-            .collect()
-    }
-
     /// Number of distinct registered pubkeys (unique users).
     pub async fn unique_user_count(&self) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar("SELECT COUNT(DISTINCT pubkey_x) FROM registrations")

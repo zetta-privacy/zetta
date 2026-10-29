@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {PoseidonT4} from "poseidon-solidity/PoseidonT4.sol";
+import {IBlacklist} from "./interfaces/Blacklist.sol";
 
 contract zERC20 is ERC20 {
     uint256 public burnHashChain;
@@ -14,10 +15,12 @@ contract zERC20 is ERC20 {
     address public verifier; // the Verifier (teleport)
 
     address public owner; // Cold wallet / multisig
+    address public blacklist;
 
     event BurnStep(address indexed from, address indexed to, uint256 value, uint256 hashChain);
     event MinterRotated(address indexed oldMinter, address indexed newMinter);
     event VerifierRotated(address indexed oldVerifier, address indexed newVerifier);
+    event BlacklistRotated(address indexed oldBlacklist, address indexed newBlacklist);
 
     modifier onlyOwner() {
         _onlyOwner();
@@ -32,6 +35,11 @@ contract zERC20 is ERC20 {
         minter = msg.sender;
         verifier = msg.sender;
         owner = msg.sender;
+    }
+
+    function setBlacklist(address b) external onlyOwner {
+        emit BlacklistRotated(blacklist, b);
+        blacklist = b;
     }
 
     function setMinter(address m) external onlyOwner {
@@ -65,6 +73,12 @@ contract zERC20 is ERC20 {
 
     function _update(address from, address to, uint256 value) internal override {
         require(value < VALUE_LIMIT, "value too large");
+        if (from != address(0) && blacklist != address(0)) {
+            require(!IBlacklist(blacklist).isBlacklisted(from), "blacklisted sender");
+        }
+        if (to != address(0) && blacklist != address(0)) {
+            require(!IBlacklist(blacklist).isBlacklisted(to), "blacklisted recipient");
+        }
         super._update(from, to, value);
         if (from != address(0) && to != address(0)) {
             burnHashChain = PoseidonT4.hash([burnHashChain, uint256(uint160(to)), value]);

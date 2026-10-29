@@ -36,6 +36,7 @@ sol! {
         function singleRootTransitionVerifier() external view returns (address);
         function USDC() external view returns (address);
         function TOKEN() external view returns (address);
+        function setBlacklist(address b) external;
     }
 }
 
@@ -358,6 +359,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "zERC20.setVerifier",
         token,
         IAdmin::setVerifierCall { v: verifier }.abi_encode(),
+    )
+    .await?;
+    call(
+        &wallet,
+        &provider,
+        "zERC20.setBlacklist",
+        token,
+        IAdmin::setBlacklistCall { b: usdc }.abi_encode(),
     )
     .await?;
 
