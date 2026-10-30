@@ -41,6 +41,7 @@ contract Verifier {
     constructor(zERC20 token_, uint256 initialRoot_) {
         token = token_;
         transferRoot = initialRoot_;
+        startRoot = initialRoot_;
         owner = msg.sender;
     }
 
