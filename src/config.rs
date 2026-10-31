@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
     pub rotate_threshold: u64,
-    pub tweak: u64,
     pub poll_interval_secs: u64,
     pub max_users: i64,
     pub max_cards_per_user: i64,

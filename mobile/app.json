@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Zetta",
+    "ios": {
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Zetta uses Face ID to keep your wallet locked.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.zettaprivacy.zetta"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "cc407b32-b4fa-4865-aab6-e1d3d0e3bb64"
+      }
+    }
+  }
+}

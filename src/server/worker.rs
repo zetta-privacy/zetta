@@ -628,10 +628,7 @@ async fn advance_start_hash_chain(
     let verifier = IVerifier::new(config.verifier, provider);
     let reserved: u64 = verifier.reservedIndex().call().await?.try_into()?;
     let transfer: u64 = verifier.transferIndex().call().await?.try_into()?;
-    let start: u64 = verifier.startIndex().call().await?.try_into()?;
-    if reserved.saturating_sub(transfer) < 2
-        && reserved.saturating_sub(start) > config.settings.rotate_threshold
-    {
+    if reserved.saturating_sub(transfer) < 2 {
         debug!(
             stage = "advance_start",
             reserved, transfer, "headroom < 2 — skip"

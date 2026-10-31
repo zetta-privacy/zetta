@@ -8,6 +8,7 @@ import { CardsScreen } from './src/screens/CardsScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { getOrCreateIdentitySecret } from './src/storage';
+import { LockScreen } from './src/screens/LockScreen'
 
 type Tab = 'home' | 'cards' | 'settings';
 
@@ -24,11 +25,14 @@ const TABS: {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home');
+  const [locked, setLocked] = useState(true);
 
   // create the wallet's signing key once, on first launch
   useEffect(() => {
     getOrCreateIdentitySecret().catch(() => {});
   }, []);
+
+  if (locked) return <LockScreen onUnlock={() => setLocked(false)} />;
 
   return (
     <View style={styles.root}>
