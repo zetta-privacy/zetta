@@ -36,6 +36,19 @@ use crate::zkp::{
 /// Max blocks per eth_getLogs call — under hosted-RPC range caps.
 const LOG_CHUNK: u64 = 200;
 
+/// A single on-chain burn step. `burn_index` is the tree-leaf index assigned
+/// during `sync_chain`; it is `0` when read straight off the chain.
+#[derive(Clone, Copy, Debug)]
+pub struct BurnEvent {
+    pub burn_index: u64,
+    pub block_number: u64,
+    pub log_index: u64,
+    pub from: [u8; 20],
+    pub to: [u8; 20],
+    pub value: Fr,
+    pub hash_chain: Fr,
+}
+
 /// Phase-1 output: progress bookkeeping. The mirror state itself is extended
 /// in place and read back by later phases from the shared slot.
 pub struct Prepared {
@@ -53,8 +66,14 @@ pub async fn run(
     config: &Config,
     db: &Db,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Boot: full replay from the deployment block; afterwards incremental.
-    let mut last_block = config.last_block;
+    // Boot: replay persisted burns into the mirror and recover the block cursor.
+    let boot = {
+        let mut s = state.lock().unwrap().clone();
+        let last = hydrate_burns(&mut s, db).await?;
+        *state.lock().unwrap() = s;
+        last
+    };
+    let mut last_block = boot.unwrap_or(config.last_block);
     loop {
         // Phase 1: catch the mirror up to the finalized prefix [0..transferIndex).
         let mut next = state.lock().unwrap().clone(); // shared slot untouched on failure
@@ -140,7 +159,14 @@ async fn prepare(
     hydrate_registrations(s, db).await?;
 
     let events = fetch_chain_events(provider, config.token, from_block, latest).await?;
-    let target_block = sync_chain(&mut *s, &events, on_chain_chain, &mut apply_transfer)?;
+    let target_block = sync_chain(
+        &mut *s,
+        &events,
+        on_chain_chain,
+        &mut apply_transfer,
+        &mut |e: BurnEvent| async move { db.insert_burn(&e).await.map_err(Into::into) },
+    )
+    .await?;
 
     if s.chain.index() != proven {
         return Err(format!(
@@ -191,11 +217,14 @@ async fn process_update_root(
         &mut work,
         &events,
         reserved_chain,
-        &mut |s, from, to, value| {
-            witnesses.push(commit_transfer(s, from, to, value)?);
+        &mut |s, e| {
+            witnesses.push(commit_transfer(s, e)?);
             Ok(())
         },
-    )?;
+        &mut |_: BurnEvent| async move { Ok(()) },
+    )
+    .await?;
+
     if work.chain.index() != reserved_index {
         return Err(format!(
             "reserved chain reached at index {} but reservedIndex is {reserved_index}",
@@ -455,18 +484,16 @@ async fn unwrap_after_withdraw(
 /// Apply one transfer to the working copy, recording the root-step witness.
 fn commit_transfer(
     s: &mut State,
-    from: [u8; 20],
-    to: [u8; 20],
-    value: Fr,
+    e: &BurnEvent,
 ) -> Result<RootTransitionWitness, Box<dyn std::error::Error>> {
     let mut merkle_path = [Fr::zero(); TREE_DEPTH];
     merkle_path.copy_from_slice(&s.tree.proof_for_empty(s.tree.len()));
     let witness = RootTransitionWitness {
-        to: address_to_fr(to),
-        value,
+        to: address_to_fr(e.to),
+        value: e.value,
         merkle_path,
     };
-    apply_transfer(s, from, to, value)?;
+    apply_transfer(s, e)?;
     Ok(witness)
 }
 
@@ -489,18 +516,44 @@ async fn hydrate_registrations(s: &mut State, db: &Db) -> Result<(), Box<dyn std
     Ok(())
 }
 
+/// Replay persisted burns into the mirror, enforcing a contiguous burn index
+/// and verifying each step's carried chain. Returns the latest block, if any.
+async fn hydrate_burns(s: &mut State, db: &Db) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+    let burns = db.burns().await?;
+    let mut expected = s.tree.len() as u64;
+    let mut last_block = None;
+    for b in burns {
+        if b.burn_index != expected {
+            return Err(format!(
+                "burn index gap at {}: expected {expected} (table out of order)",
+                b.burn_index
+            )
+            .into());
+        }
+        apply_transfer(s, &b)?;
+        if s.chain.state() != b.hash_chain {
+            return Err(format!(
+                "burn {}: carried chain mismatch (reorg or corrupt table)",
+                b.burn_index
+            )
+            .into());
+        }
+        expected += 1;
+        last_block = Some(b.block_number);
+    }
+    Ok(last_block)
+}
+
 /// Replay one proven transfer: tree insert + hash-chain step + ledger entries.
-fn apply_transfer(
-    s: &mut State,
-    from: [u8; 20],
-    to: [u8; 20],
-    value: Fr,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn apply_transfer(s: &mut State, e: &BurnEvent) -> Result<(), Box<dyn std::error::Error>> {
     let index = s.tree.len();
-    s.tree.insert(poseidon2(address_to_fr(to), value)?);
-    s.chain.apply(to, value);
-    *s.credits.entry(to).or_default() += fr_to_u256(value);
-    s.deposits.entry(to).or_default().push((from, value, index));
+    s.tree.insert(poseidon2(address_to_fr(e.to), e.value)?);
+    s.chain.apply(e.to, e.value);
+    *s.credits.entry(e.to).or_default() += fr_to_u256(e.value);
+    s.deposits
+        .entry(e.to)
+        .or_default()
+        .push((e.from, e.value, index));
     Ok(())
 }
 
@@ -512,8 +565,8 @@ async fn fetch_chain_events(
     token: Address,
     from_block: u64,
     to_block: u64,
-) -> Result<Vec<(u64, [u8; 20], [u8; 20], Fr, Fr)>, Box<dyn std::error::Error>> {
-    let mut logs = Vec::new(); // (block, log_index, ...) until sorted
+) -> Result<Vec<BurnEvent>, Box<dyn std::error::Error>> {
+    let mut events = Vec::new();
     let mut from = from_block;
     while from <= to_block {
         let to = (from + LOG_CHUNK - 1).min(to_block);
@@ -525,33 +578,35 @@ async fn fetch_chain_events(
         for log in provider.get_logs(&filter).await? {
             let decoded = log.log_decode::<BurnStep>()?;
             let d = decoded.data();
-            logs.push((
-                log.block_number.ok_or("log without block number")?,
-                log.log_index.ok_or("log without log index")?,
-                d.from.into_array(),
-                d.to.into_array(),
-                u256_to_fr(d.value),
-                u256_to_fr(d.hashChain),
-            ));
+            events.push(BurnEvent {
+                burn_index: 0, // assigned during sync_chain
+                block_number: log.block_number.ok_or("log without block number")?,
+                log_index: log.log_index.ok_or("log without log index")?,
+                from: d.from.into_array(),
+                to: d.to.into_array(),
+                value: u256_to_fr(d.value),
+                hash_chain: u256_to_fr(d.hashChain),
+            });
         }
         from = to + 1;
     }
-    logs.sort_by_key(|e| (e.0, e.1));
-    Ok(logs
-        .into_iter()
-        .map(|(b, _, f, t, v, h)| (b, f, t, v, h))
-        .collect())
+    events.sort_by_key(|e| (e.block_number, e.log_index));
+    Ok(events)
 }
 
 /// Advance the mirror along `events` until its hash chain equals `target`.
 /// Position is recovered by chain value, so `events` may overlap history.
 /// Returns the block of the target-carrying event, or None if already at target.
-fn sync_chain(
+async fn sync_chain<Fut>(
     s: &mut State,
-    events: &[(u64, [u8; 20], [u8; 20], Fr, Fr)],
+    events: &[BurnEvent],
     target: Fr,
-    apply: &mut impl FnMut(&mut State, [u8; 20], [u8; 20], Fr) -> Result<(), Box<dyn std::error::Error>>,
-) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+    apply: &mut impl FnMut(&mut State, &BurnEvent) -> Result<(), Box<dyn std::error::Error>>,
+    persist: &mut impl FnMut(BurnEvent) -> Fut,
+) -> Result<Option<u64>, Box<dyn std::error::Error>>
+where
+    Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>,
+{
     if s.chain.state() == target {
         return Ok(None); // already at the frontier
     }
@@ -559,27 +614,26 @@ fn sync_chain(
     let mut it = events.iter().copied();
     let start = s.chain.state();
 
-    // Loop 1 — find the starting state: skip up to and including the sync
-    // event (the last transfer the mirror already ingested). Genesis has no
-    // history, so there's nothing to skip.
     if !start.is_zero() {
-        match it.find(|&(_, _, _, _, carried)| carried == start) {
-            Some(_) => {} // `it` is now positioned just past the sync event
+        match it.find(|e| e.hash_chain == start) {
+            Some(_) => {}
             None => return Err("sync point not in window: stale cursor or reorg".into()),
         }
     }
 
-    // Loop 2 — apply from the carried state until the target chain is reached.
-    for (blk, from, to, value, carried) in it {
-        apply(s, from, to, value)?;
-        if s.chain.state() != carried {
+    for mut ev in it {
+        ev.burn_index = s.tree.len() as u64;
+        apply(s, &ev)?;
+        if s.chain.state() != ev.hash_chain {
             return Err(format!(
-                "chain mismatch at block {blk}: mirror out of sync (gap or reorg)"
+                "chain mismatch at block {}: mirror out of sync (gap or reorg)",
+                ev.block_number
             )
             .into());
         }
-        if carried == target {
-            return Ok(Some(blk));
+        persist(ev).await?;
+        if ev.hash_chain == target {
+            return Ok(Some(ev.block_number));
         }
     }
 

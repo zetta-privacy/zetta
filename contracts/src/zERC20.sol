@@ -17,7 +17,7 @@ contract zERC20 is ERC20 {
     address public owner; // Cold wallet / multisig
     address public blacklist;
 
-    event BurnStep(address indexed from, address indexed to, uint256 value, uint256 hashChain);
+    event BurnStep(address indexed from, address indexed to, uint256 value, uint256 burnIndex, uint256 hashChain);
     event MinterRotated(address indexed oldMinter, address indexed newMinter);
     event VerifierRotated(address indexed oldVerifier, address indexed newVerifier);
     event BlacklistRotated(address indexed oldBlacklist, address indexed newBlacklist);
@@ -83,7 +83,7 @@ contract zERC20 is ERC20 {
         if (from != address(0) && to != address(0)) {
             burnHashChain = PoseidonT4.hash([burnHashChain, uint256(uint160(to)), value]);
             burnIndex += 1;
-            emit BurnStep(from, to, value, burnHashChain);
+            emit BurnStep(from, to, value, burnIndex, burnHashChain);
         }
     }
 

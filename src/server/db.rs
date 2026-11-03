@@ -11,6 +11,7 @@
 
 use crate::burn::address_to_fr;
 use crate::ids::user_id;
+use crate::server::worker::BurnEvent;
 use crate::zkp::poseidon2;
 use crate::zkp::poseidon3;
 use alloy::primitives::U256;
@@ -145,6 +146,27 @@ fn row_to_registration(row: &sqlx::postgres::PgRow) -> Result<Registration, sqlx
         recipient: blob_to_fr(&row.try_get::<Vec<u8>, _>("recipient")?),
         registered_from: row.try_get("registered_from")?,
         user_id: row.try_get("user_id")?,
+    })
+}
+
+fn row_to_burn(row: &sqlx::postgres::PgRow) -> Result<BurnEvent, sqlx::Error> {
+    let from: Vec<u8> = row.try_get("from_addr")?;
+    let to: Vec<u8> = row.try_get("to_addr")?;
+    let value_str: String = row.try_get("value")?;
+    let value = U256::from_str_radix(&value_str, 10)
+        .map_err(|e| sqlx::Error::Decode(format!("bad burn value '{value_str}': {e}").into()))?;
+    Ok(BurnEvent {
+        burn_index: row.try_get::<i64, _>("burn_index")? as u64,
+        block_number: row.try_get::<i64, _>("block_number")? as u64,
+        log_index: row.try_get::<i64, _>("log_index")? as u64,
+        from: from
+            .try_into()
+            .map_err(|_| sqlx::Error::Decode("bad from_addr length".into()))?,
+        to: to
+            .try_into()
+            .map_err(|_| sqlx::Error::Decode("bad to_addr length".into()))?,
+        value: super::u256_to_fr(value),
+        hash_chain: blob_to_fr(&row.try_get::<Vec<u8>, _>("hash_chain")?),
     })
 }
 
@@ -741,5 +763,35 @@ impl Db {
             return Err(format!("order {provider_ref} not succeeded (or missing)"));
         }
         Ok(())
+    }
+}
+
+impl Db {
+    pub async fn burns(&self) -> Result<Vec<BurnEvent>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT block_number, log_index, burn_index, from_addr, to_addr, value::text AS value, hash_chain
+             FROM burns ORDER BY burn_index",
+        )
+        .fetch_all(&self.0)
+        .await?;
+        rows.iter().map(row_to_burn).collect()
+    }
+
+    pub async fn insert_burn(&self, b: &BurnEvent) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO burns (block_number, log_index, burn_index, from_addr, to_addr, value, hash_chain)
+             VALUES ($1, $2, $3, $4, $5, $6::numeric, $7)
+             ON CONFLICT (burn_index) DO NOTHING",
+        )
+        .bind(b.block_number as i64)
+        .bind(b.log_index as i64)
+        .bind(b.burn_index as i64)
+        .bind(b.from.to_vec())
+        .bind(b.to.to_vec())
+        .bind(fr_to_u256(b.value).to_string())
+        .bind(fr_to_blob(b.hash_chain))
+        .execute(&self.0)
+        .await
+        .map(|_| ())
     }
 }
