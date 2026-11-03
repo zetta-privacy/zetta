@@ -2,11 +2,13 @@ mod poseidon;
 mod root;
 mod withdraw;
 
-use ark_bn254::{Bn254, Fr, G1Projective as G1};
+use ark_bn254::{Bn254, Fr, G1Affine, G1Projective as G1, G2Affine};
+use ark_ec::pairing::Pairing;
 use ark_groth16::Groth16;
 use ark_grumpkin::Projective as G2;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use folding_schemes::commitment::kzg::KZG;
+use folding_schemes::commitment::CommitmentScheme;
+use folding_schemes::commitment::kzg::{KZG, ProverKey};
 use folding_schemes::commitment::pedersen::Pedersen;
 use folding_schemes::folding::nova::decider_eth::Decider as DeciderEth;
 use folding_schemes::folding::nova::decider_eth::DeciderEthCircuit;
@@ -16,6 +18,7 @@ use folding_schemes::folding::traits::Dummy;
 use folding_schemes::frontend::FCircuit;
 use folding_schemes::transcript::poseidon::poseidon_canonical_config;
 use folding_schemes::{Decider, FoldingScheme};
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use tracing::info;
 
@@ -53,9 +56,13 @@ pub type WithdrawD = DeciderEth<
     WithdrawN,
 >;
 
+type G2Prepared = <Bn254 as Pairing>::G2Prepared;
+
 pub type RootDeciderVp = <RootD as Decider<G1, G2, RootTransitionCircuit, RootN>>::VerifierParam;
 pub type WithdrawDeciderVp =
     <WithdrawD as Decider<G1, G2, WithdrawCircuit, WithdrawN>>::VerifierParam;
+
+type KzgVerifierKey = <KZG<'static, Bn254> as CommitmentScheme<G1, false>>::VerifierParams;
 
 // ---- fs helpers ----
 
@@ -350,6 +357,42 @@ macro_rules! setup_struct {
                 let poseidon_config = poseidon_canonical_config::<Fr>();
                 let mut rng = ark_std::rand::rngs::OsRng;
                 let prep = PreprocessorParam::new(poseidon_config, f_circuit);
+                let (nova_pp, nova_vp) =
+                    <$n as FoldingScheme<G1, G2, $fc>>::preprocess(&mut rng, &prep)?;
+                Ok(Self { nova_pp, nova_vp })
+            }
+
+            pub fn new_from_ptau(
+                tau_g1: &[G1Affine],
+                alpha_g1: &[G1Affine],
+                tau_g2: &[G2Affine],
+                beta_g2: G2Affine,
+            ) -> Result<Self, Box<dyn std::error::Error>> {
+                let f_circuit = <$fc>::new(())?;
+                let poseidon_config = poseidon_canonical_config::<Fr>();
+
+                let kzg_pk = ProverKey {
+                    powers_of_g: Cow::Owned(tau_g1.to_vec()),
+                };
+                let kzg_vk = KzgVerifierKey {
+                    g: tau_g1[0],
+                    gamma_g: alpha_g1[0],
+                    h: tau_g2[0],
+                    beta_h: beta_g2,
+                    prepared_h: G2Prepared::from(tau_g2[0]),
+                    prepared_beta_h: G2Prepared::from(beta_g2),
+                };
+
+                let prep = PreprocessorParam {
+                    poseidon_config,
+                    F: f_circuit,
+                    cs_pp: Some(kzg_pk),
+                    cs_vp: Some(kzg_vk),
+                    cf_cs_pp: None, // Pedersen over grumpkin — transparent, minted in preprocess
+                    cf_cs_vp: None,
+                };
+
+                let mut rng = ark_std::rand::rngs::OsRng;
                 let (nova_pp, nova_vp) =
                     <$n as FoldingScheme<G1, G2, $fc>>::preprocess(&mut rng, &prep)?;
                 Ok(Self { nova_pp, nova_vp })
