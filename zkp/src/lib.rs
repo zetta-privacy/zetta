@@ -363,7 +363,7 @@ macro_rules! setup_struct {
             }
 
             pub fn new_from_ptau(
-                tau_g1: &[G1Affine],
+                tau_g1: Vec<G1Affine>,
                 alpha_g1: &[G1Affine],
                 tau_g2: &[G2Affine],
                 beta_g2: G2Affine,
@@ -371,11 +371,12 @@ macro_rules! setup_struct {
                 let f_circuit = <$fc>::new(())?;
                 let poseidon_config = poseidon_canonical_config::<Fr>();
 
+                let g = tau_g1[0].clone();
                 let kzg_pk = ProverKey {
-                    powers_of_g: Cow::Owned(tau_g1.to_vec()),
+                    powers_of_g: Cow::Owned(tau_g1),
                 };
                 let kzg_vk = KzgVerifierKey {
-                    g: tau_g1[0],
+                    g,
                     gamma_g: alpha_g1[0],
                     h: tau_g2[0],
                     beta_h: beta_g2,
