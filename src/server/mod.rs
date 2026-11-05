@@ -1,16 +1,12 @@
-pub mod api;
-pub mod db;
-pub mod laso;
 pub mod state;
 pub mod wallet;
 pub mod worker;
 
-use crate::server::db::Db;
 use crate::server::state::State;
 use alloy::primitives::U256;
 use alloy::providers::DynProvider;
 use alloy::sol;
-use ark_bn254::{Fq, Fr};
+use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use std::sync::{Arc, Mutex};
 
@@ -58,28 +54,10 @@ pub type SharedState = Arc<Mutex<State>>;
 #[derive(Clone)]
 pub struct AppState {
     pub state: SharedState,
-    pub db: Db,
     pub provider: DynProvider, // wallet-backed, signs with PRIVATE_KEY
-    pub laso: laso::LasoClient,
 }
 
 fn u256_to_fr(v: U256) -> Fr {
     let bytes: [u8; 32] = v.to_be_bytes();
     Fr::from_be_bytes_mod_order(&bytes)
-}
-
-fn parse_hex20(s: &str) -> Result<[u8; 20], String> {
-    let s = s.strip_prefix("0x").unwrap_or(s);
-    let b = hex::decode(s).map_err(|e| e.to_string())?;
-    b.try_into().map_err(|_| "expected 20 bytes".to_string())
-}
-
-fn parse_decimal_fr(s: &str) -> Result<Fr, String> {
-    let n = num_bigint::BigUint::parse_bytes(s.as_bytes(), 10).ok_or("invalid decimal")?;
-    Ok(Fr::from_be_bytes_mod_order(&n.to_bytes_be()))
-}
-
-fn parse_decimal_fq(s: &str) -> Result<Fq, String> {
-    let n = num_bigint::BigUint::parse_bytes(s.as_bytes(), 10).ok_or("invalid decimal")?;
-    Ok(Fq::from_be_bytes_mod_order(&n.to_bytes_be()))
 }

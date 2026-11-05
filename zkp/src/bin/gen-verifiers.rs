@@ -1,9 +1,6 @@
 use std::{fs, path::Path};
 
-use zkp::{
-    ARTIFACTS_DIR, read_root_params, read_withdraw_params, render_root_transition_verifier,
-    render_withdraw_verifier,
-};
+use zkp::{ARTIFACTS_DIR, read_root_params, render_root_transition_verifier};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = Path::new("contracts/src/verifiers");
@@ -15,10 +12,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(
         out_dir.join("RootTransitionVerifier.sol"),
         render_root_transition_verifier(&read_root_params(artifacts)?.decider_vp)?,
-    )?;
-    fs::write(
-        out_dir.join("WithdrawVerifier.sol"),
-        render_withdraw_verifier(&read_withdraw_params(artifacts)?.decider_vp)?,
     )?;
 
     println!("done");

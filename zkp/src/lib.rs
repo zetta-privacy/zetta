@@ -1,6 +1,5 @@
 mod poseidon;
 mod root;
-mod withdraw;
 
 use ark_bn254::{Bn254, Fr, G1Affine, G1Projective as G1, G2Affine};
 use ark_ec::pairing::Pairing;
@@ -26,7 +25,6 @@ use tracing::info;
 
 pub use poseidon::*;
 pub use root::*;
-pub use withdraw::*;
 
 use solidity_verifiers::NovaCycleFoldVerifierKey;
 use solidity_verifiers::calldata::{
@@ -48,22 +46,10 @@ pub type RootD = DeciderEth<
     Groth16<Bn254>,
     RootN,
 >;
-pub type WithdrawN = Nova<G1, G2, WithdrawCircuit, KZG<'static, Bn254>, Pedersen<G2>, false>;
-pub type WithdrawD = DeciderEth<
-    G1,
-    G2,
-    WithdrawCircuit,
-    KZG<'static, Bn254>,
-    Pedersen<G2>,
-    Groth16<Bn254>,
-    WithdrawN,
->;
 
 type G2Prepared = <Bn254 as Pairing>::G2Prepared;
 
 pub type RootDeciderVp = <RootD as Decider<G1, G2, RootTransitionCircuit, RootN>>::VerifierParam;
-pub type WithdrawDeciderVp =
-    <WithdrawD as Decider<G1, G2, WithdrawCircuit, WithdrawN>>::VerifierParam;
 
 type KzgVerifierKey = <KZG<'static, Bn254> as CommitmentScheme<G1, false>>::VerifierParams;
 
@@ -209,19 +195,6 @@ nova_artifact_set!(
     write = write_root_params,
     cached = cached_root_params
 );
-nova_artifact_set!(
-    "withdraw",
-    WithdrawParams,
-    WithdrawCircuit,
-    WithdrawN,
-    WithdrawD,
-    (),
-    create = create_withdraw_params,
-    read = read_withdraw_params,
-    write = write_withdraw_params,
-    cached = cached_withdraw_params
-);
-
 // ---- proving ----
 
 macro_rules! prove_for {
@@ -295,13 +268,6 @@ prove_for!(
     RootN,
     RootD
 );
-prove_for!(
-    prove_withdraw,
-    cached_withdraw_params,
-    WithdrawCircuit,
-    WithdrawN,
-    WithdrawD
-);
 
 // ---- decider verifier rendering (pure: key -> Solidity) ----
 
@@ -318,7 +284,6 @@ macro_rules! render_decider_verifier_for {
 }
 
 render_decider_verifier_for!(render_root_transition_verifier, RootDeciderVp, 3);
-render_decider_verifier_for!(render_withdraw_verifier, WithdrawDeciderVp, 4);
 
 macro_rules! decider_circuit_for {
     ($name:ident, $fc:ty, $n:ty, $state_len:expr) => {
@@ -345,7 +310,6 @@ macro_rules! decider_circuit_for {
 }
 
 decider_circuit_for!(root_decider_circuit, RootTransitionCircuit, RootN, 3);
-decider_circuit_for!(withdraw_decider_circuit, WithdrawCircuit, WithdrawN, 4);
 
 macro_rules! setup_struct {
     ($name:ident, $fc:ty, $n:ty, $d:ty, $holder:ident, $state_len:expr) => {
@@ -470,12 +434,4 @@ setup_struct!(
     RootD,
     RootParams,
     3
-);
-setup_struct!(
-    WithdrawSetup,
-    WithdrawCircuit,
-    WithdrawN,
-    WithdrawD,
-    WithdrawParams,
-    4
 );

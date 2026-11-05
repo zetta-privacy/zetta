@@ -18,8 +18,8 @@ use alloy::sol_types::{SolCall, SolValue};
 use serde_json::{Value, json};
 use tracing::info;
 
+use zetta::burn::fr_to_u256;
 use zetta::config::Network;
-use zetta::server::db::fr_to_u256;
 use zetta::server::wallet::Wallet;
 use zetta::tree::MerkleTree;
 use zetta::zkp::TREE_DEPTH;

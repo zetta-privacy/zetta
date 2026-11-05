@@ -1,12 +1,10 @@
-use alloy::primitives::U256;
-use alloy::providers::{Provider, ProviderBuilder};
+use alloy::providers::ProviderBuilder;
 use std::sync::{Arc, Mutex};
 
 use zetta::config::{Config, load_settings};
-use zetta::server::db::Db;
 use zetta::server::state::State;
 use zetta::server::wallet::Wallet;
-use zetta::server::{AppState, IVerifier, SharedState, api, worker};
+use zetta::server::{SharedState, worker};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +21,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(stage = "boot", "loading proving params");
     let t = std::time::Instant::now();
     zetta::zkp::cached_root_params()?;
-    zetta::zkp::cached_withdraw_params()?;
     tracing::info!(stage = "boot", elapsed = ?t.elapsed(), "proving params loaded");
 
     let wallet = Wallet::new(
@@ -34,48 +31,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.chain_id,
     )?;
     tracing::info!(stage = "boot", address = %wallet.address(), "operator wallet (privy)");
-    let exchange_addr = wallet.address().into_array();
-    let laso = zetta::server::laso::LasoClient::new(&config.laso_url, wallet.clone());
     // Read-only provider; every send/sign goes through the Privy wallet.
     let provider = ProviderBuilder::new().connect_http(config.rpc_url.parse()?);
 
-    let db = Db::open(&config.database_url).await?;
     let settings = load_settings()?;
-
-    let tweak: U256 = IVerifier::new(config.verifier, provider.clone())
-        .tweak()
-        .call()
-        .await?;
-    let state: SharedState = Arc::new(Mutex::new(State::new(
-        config.chain_id,
-        exchange_addr,
-        tweak.to_be_bytes::<32>(),
-        &settings,
-    )?));
-    worker::log_recipient(&state);
-
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.port))
-        .await
-        .map_err(|e| {
-            format!(
-                "bind :{} failed: {e} — stale zetta process? kill it: kill $(lsof -ti :{})",
-                config.port, config.port
-            )
-        })?;
-    api::spawn_http_server(
-        AppState {
-            state: state.clone(),
-            db: db.clone(),
-            provider: provider.clone().erased(),
-            laso,
-        },
-        listener,
-    );
-    tracing::info!(stage = "boot", port = config.port, "HTTP server bound");
+    let state: SharedState = Arc::new(Mutex::new(State::new(config.chain_id, &settings)?));
 
     // Worker runs forever; on any error, log and restart instead of exiting.
     loop {
-        if let Err(e) = worker::run(&state, &provider, &wallet, &config, &db).await {
+        if let Err(e) = worker::run(&state, &provider, &wallet, &config).await {
             tracing::error!(error = %e, "worker error; restarting in 5s");
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }

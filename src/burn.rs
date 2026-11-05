@@ -1,3 +1,4 @@
+use alloy::primitives::U256;
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 
@@ -40,6 +41,14 @@ pub fn fr_to_bytes32(f: Fr) -> [u8; 32] {
         .to_bytes_be()
         .try_into()
         .expect("Fr is 32 bytes")
+}
+
+pub fn fr_to_u256(x: Fr) -> U256 {
+    U256::from_be_slice(&fr_to_blob(x))
+}
+
+pub fn fr_to_blob<F: PrimeField>(x: F) -> Vec<u8> {
+    x.into_bigint().to_bytes_be()
 }
 
 #[cfg(test)]

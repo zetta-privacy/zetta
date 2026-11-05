@@ -5,7 +5,7 @@ use ark_ff::PrimeField;
 use ark_relations::gr1cs::ConstraintSynthesizer;
 use folding_schemes::arith::Arith;
 use serde_json::Value;
-use zkp::{ARTIFACTS_DIR, root_decider_circuit, withdraw_decider_circuit};
+use zkp::{ARTIFACTS_DIR, root_decider_circuit};
 
 fn row_to_json(row: &[(Fr, usize)]) -> Value {
     let mut map = serde_json::Map::new();
@@ -58,12 +58,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("exporting root decider R1CS (huge, slow)...");
     export_r1cs(&dir.join("root_decider.r1cs.json"), root_decider_circuit()?)?;
-
-    println!("exporting withdraw decider R1CS (huge, slow)...");
-    export_r1cs(
-        &dir.join("withdraw_decider.r1cs.json"),
-        withdraw_decider_circuit()?,
-    )?;
 
     println!("done");
     Ok(())
