@@ -7,6 +7,8 @@ use ark_ec::pairing::Pairing;
 use ark_groth16::Groth16;
 use ark_grumpkin::Projective as G2;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::rand::SeedableRng;
+use ark_std::rand::rngs::StdRng;
 use folding_schemes::commitment::CommitmentScheme;
 use folding_schemes::commitment::kzg::{KZG, ProverKey};
 use folding_schemes::commitment::pedersen::Pedersen;
@@ -34,6 +36,7 @@ use solidity_verifiers::verifiers::nova_cyclefold::get_decider_template_for_cycl
 
 pub const ARTIFACTS_DIR: &str = "artifacts";
 pub const TREE_DEPTH: usize = 32;
+pub const RNG_SEED: [u8; 32] = *b"zetta-grumpkin-pedersen-00000000";
 
 pub type RootN = Nova<G1, G2, RootTransitionCircuit, KZG<'static, Bn254>, Pedersen<G2>, false>;
 pub type RootD = DeciderEth<
@@ -355,7 +358,7 @@ macro_rules! setup_struct {
             pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
                 let f_circuit = <$fc>::new(())?;
                 let poseidon_config = poseidon_canonical_config::<Fr>();
-                let mut rng = ark_std::rand::rngs::OsRng;
+                let mut rng = StdRng::from_seed(RNG_SEED);
                 let prep = PreprocessorParam::new(poseidon_config, f_circuit);
                 let (nova_pp, nova_vp) =
                     <$n as FoldingScheme<G1, G2, $fc>>::preprocess(&mut rng, &prep)?;
@@ -393,7 +396,7 @@ macro_rules! setup_struct {
                     cf_cs_vp: None,
                 };
 
-                let mut rng = ark_std::rand::rngs::OsRng;
+                let mut rng = StdRng::from_seed(RNG_SEED);
                 let (nova_pp, nova_vp) =
                     <$n as FoldingScheme<G1, G2, $fc>>::preprocess(&mut rng, &prep)?;
                 Ok(Self { nova_pp, nova_vp })
