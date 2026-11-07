@@ -1,3 +1,6 @@
 # zetta/Makefile
-circom:
-	cd zkp/circom && circom withdraw.circom --r1cs --wasm --sym -o build
+withdraw:
+	circom zkp/circom/withdraw.circom --r1cs --wasm --sym -o zkp/build
+
+root:
+	circom zkp/circom/root.circom --r1cs --wasm --sym -o zkp/build

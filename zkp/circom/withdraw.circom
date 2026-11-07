@@ -14,6 +14,7 @@ template Withdraw(levels, N) {
     signal input indices[N];
     signal input pathIndices[N][levels];
     signal input siblings[N][levels];
+    signal input sum;
 
     component burnAddr = Poseidon2();
     burnAddr.a <== recipient;
@@ -67,8 +68,14 @@ template Withdraw(levels, N) {
         isPadding[k] * (1 - isPadding[k + 1]) === 0; // real entries first, then padding
     }
 
-    // (A) freshness guard — CONFIRM semantics:
-    max_real_index + padding_count == currentIndex
+    // total value carried by the (real) deposits, bound to the public input `sum`
+    signal acc[N];
+    acc[0] <== values[0];
+    for (var k = 1; k < N; k++) {
+        acc[k] <== acc[k-1] + values[k];
+    }
+    sum === acc[N-1];
+
 }
 
-component main { public [root, recipient, I, currentIndex] } = Withdraw(32, 16);
+component main { public [root, recipient, I, currentIndex, sum] } = Withdraw(32, 16);

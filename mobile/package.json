@@ -13,6 +13,8 @@
     "@expo/vector-icons": "^15.0.2",
     "@noble/curves": "1.9.6",
     "@noble/hashes": "^1.8.0",
+    "@scure/bip32": "^1.6.0",
+    "@scure/bip39": "^1.5.0",
     "expo": "~57.0.24",
     "expo-blur": "~57.0.3",
     "expo-clipboard": "~57.0.2",

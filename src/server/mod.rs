@@ -1,3 +1,4 @@
+pub mod pir;
 pub mod state;
 pub mod wallet;
 pub mod worker;

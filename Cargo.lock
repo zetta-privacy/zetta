@@ -6068,6 +6068,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "spiral-rs"
+version = "0.2.1-alpha.2"
+source = "git+https://github.com/zetta-privacy/spiral-rs?rev=fb98d9531b767a4e08c1fa860641190b2f962a90#fb98d9531b767a4e08c1fa860641190b2f962a90"
+dependencies = [
+ "getrandom 0.2.17",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+]
+
+[[package]]
 name = "spki"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7656,6 +7670,7 @@ dependencies = [
  "sha2 0.10.9",
  "sha3 0.10.9",
  "solidity-verifiers",
+ "spiral-rs",
  "sqlx",
  "thiserror 2.0.20",
  "tokio",

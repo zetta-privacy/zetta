@@ -4,13 +4,12 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { CardsScreen } from './src/screens/CardsScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import { getOrCreateIdentitySecret } from './src/storage';
 import { LockScreen } from './src/screens/LockScreen'
+import { BurnScreen } from './src/screens/BurnScreen'
 
-type Tab = 'home' | 'cards' | 'settings';
+type Tab = 'home' | 'burn' | 'settings';
 
 const TABS: {
   id: Tab;
@@ -18,19 +17,14 @@ const TABS: {
   icon: keyof typeof Ionicons.glyphMap;
   iconActive: keyof typeof Ionicons.glyphMap;
 }[] = [
-  { id: 'home', label: 'Home', icon: 'home-outline', iconActive: 'home' },
-  { id: 'cards', label: 'Cards', icon: 'card-outline', iconActive: 'card' },
+    { id: 'home', label: 'Home', icon: 'home-outline', iconActive: 'home' },
+  { id: 'burn', label: 'Burn', icon: 'swap-horizontal-outline', iconActive: 'swap-horizontal' },
   { id: 'settings', label: 'Settings', icon: 'settings-outline', iconActive: 'settings' },
 ];
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home');
   const [locked, setLocked] = useState(true);
-
-  // create the wallet's signing key once, on first launch
-  useEffect(() => {
-    getOrCreateIdentitySecret().catch(() => {});
-  }, []);
 
   if (locked) return <LockScreen onUnlock={() => setLocked(false)} />;
 
@@ -40,7 +34,7 @@ export default function App() {
 
       {/* conditional mount ⇒ each screen reloads its data on tab switch */}
       {tab === 'home' && <HomeScreen />}
-      {tab === 'cards' && <CardsScreen />}
+      {tab === 'burn' && <BurnScreen />}
       {tab === 'settings' && <SettingsScreen />}
 
       {/* floating frosted-glass tab bar */}

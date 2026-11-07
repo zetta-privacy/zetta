@@ -48,11 +48,16 @@ dotenv = "0.15"
 axum = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres"] }
-folding-schemes = { git = "https://github.com/kbizikav/sonobe", rev = "9f201b8b77eed8dfdb464304d3a4d624b5f5f2dd", default-features = false }
-solidity-verifiers = { git = "https://github.com/kbizikav/sonobe", rev = "9f201b8b77eed8dfdb464304d3a4d624b5f5f2dd", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 privy-rs = "=0.1.0-alpha.6"
+wasm-bindgen = "0.2"
+
+folding-schemes = { git = "https://github.com/kbizikav/sonobe", rev = "9f201b8b77eed8dfdb464304d3a4d624b5f5f2dd", default-features = false }
+solidity-verifiers = { git = "https://github.com/kbizikav/sonobe", rev = "9f201b8b77eed8dfdb464304d3a4d624b5f5f2dd", default-features = false }
+spiral-rs = { git = "https://github.com/zetta-privacy/spiral-rs", rev = "fb98d9531b767a4e08c1fa860641190b2f962a90", features = ["server"] }
+
+zkp = { path = "zkp" }
 
 [dependencies]
 hex = { workspace = true }
@@ -91,7 +96,8 @@ solidity-verifiers = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 privy-rs = { workspace = true }
-zkp = { path = "zkp" }
+zkp = { workspace = true }
+spiral-rs = { workspace = true }
 
 [patch.crates-io]
 # groth16 is vendored at vendor/groth16 (arkworks-rs/groth16 @ b3b4a15, with its
@@ -120,4 +126,4 @@ ark-bls12-381 = { git = "https://github.com/arkworks-rs/algebra", rev = "c1f4f56
 [dev-dependencies]
 tracing = "0.1"
 tracing-subscriber = "0.3"
-zkp = { path = "zkp" }
+zkp = { workspace = true }

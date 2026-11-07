@@ -124,8 +124,8 @@ contract Verifier {
 
         require(root == transferRoot, "unknown root");
         require(proofRecipient == recipient, "recipient mismatch");
-        require(prevSum == 0, "invalid sum base");
-        require(prevIndex == 0, "invalid frontier");
+        require(prevSum == totalWithdrawn[recipient], "invalid sum base");
+        require(prevIndex == withdrawnIndex[recipient], "invalid frontier");
 
         require(withdrawVerifier.verifyOpaqueNovaProof(proof), "invalid proof");
 
