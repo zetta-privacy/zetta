@@ -1,3 +1,5 @@
+pub mod cuckoo;
+pub mod oprf;
 pub mod pir;
 pub mod state;
 pub mod wallet;
@@ -5,7 +7,6 @@ pub mod worker;
 
 use crate::server::state::State;
 use alloy::primitives::U256;
-use alloy::providers::DynProvider;
 use alloy::sol;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
@@ -51,12 +52,6 @@ sol! {
 }
 
 pub type SharedState = Arc<Mutex<State>>;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub state: SharedState,
-    pub provider: DynProvider, // wallet-backed, signs with PRIVATE_KEY
-}
 
 fn u256_to_fr(v: U256) -> Fr {
     let bytes: [u8; 32] = v.to_be_bytes();

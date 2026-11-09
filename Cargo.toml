@@ -98,6 +98,7 @@ tracing-subscriber = { workspace = true }
 privy-rs = { workspace = true }
 zkp = { workspace = true }
 spiral-rs = { workspace = true }
+voprf = "0.5.0"
 
 [patch.crates-io]
 # groth16 is vendored at vendor/groth16 (arkworks-rs/groth16 @ b3b4a15, with its

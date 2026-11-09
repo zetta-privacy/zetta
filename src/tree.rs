@@ -1,18 +1,17 @@
 //! Poseidon Merkle tree + on-chain hash-chain mirror (Phase B).
 
+// src/tree.rs
+use crate::zkp::{poseidon2, poseidon3};
 use ark_bn254::Fr;
 use ark_ff::Zero;
 
-use crate::zkp::{poseidon2, poseidon3};
-
-/// Append-only Poseidon binary Merkle tree with all levels materialized.
-/// levels[0] = leaves … levels[depth] = [root]. Proof queries are O(depth),
-/// at the cost of 2^(depth+1)-1 stored nodes when full.
+/// Append-only Poseidon Merkle tree: every level keeps its full history.
+/// levels[h][k] = value of node (k >> h) at level h, after leaf k.
 #[derive(Clone)]
 pub struct MerkleTree {
     depth: usize,
-    levels: Vec<Vec<Fr>>, // levels[h].len() == ceil(leaves / 2^h)
-    zero_hashes: Vec<Fr>, // zero_hashes[h] = empty subtree of height h
+    levels: Vec<Vec<Fr>>, // append-only; one entry per leaf per level
+    zero_hashes: Vec<Fr>,
 }
 
 impl MerkleTree {
@@ -31,74 +30,78 @@ impl MerkleTree {
         }
     }
 
-    pub fn root(&self) -> Fr {
-        match self.levels[self.depth].first() {
-            Some(&r) => r,
-            None => self.zero_hashes[self.depth],
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.levels[0].len()
     }
 
-    /// Append a leaf; returns the new root. O(depth) hashes; every level is
-    /// updated in place so proofs never recompute the tree.
-    // src/tree.rs — MerkleTree::insert
-    pub fn insert(&mut self, leaf: Fr) -> Fr {
-        assert!(self.len() < 1 << self.depth, "tree full");
-        let mut idx = self.len();
-        self.levels[0].push(leaf);
-        let mut current = leaf;
+    /// Current root = the latest entry at the top level (or the empty-tree zero hash).
+    pub fn root(&self) -> Fr {
+        self.levels[self.depth]
+            .last()
+            .copied()
+            .unwrap_or(self.zero_hashes[self.depth])
+    }
 
+    /// Insert a leaf; returns path[h] = value of node (leaf_index >> h) after insert.
+    pub fn insert_with_path(&mut self, leaf: Fr) -> Vec<Fr> {
+        assert!(self.len() < 1 << self.depth, "tree full");
+        let leaf_index = self.len();
+        self.levels[0].push(leaf);
+        let mut path = vec![leaf];
+        let mut current = leaf;
+        let mut idx = leaf_index;
         for h in 0..self.depth {
             let parent = if idx & 1 == 0 {
-                // Left child: right sibling is the (conceptually empty) zero subtree.
                 poseidon2(current, self.zero_hashes[h]).expect("poseidon")
             } else {
-                poseidon2(self.levels[h][idx - 1], current).expect("poseidon")
+                // left sibling node (idx-1) at level h; its current value was last
+                // written at leaf idx*2^h - 1 (the last leaf in its subtree)
+                let left = self.levels[h][idx * (1 << h) - 1];
+                poseidon2(left, current).expect("poseidon")
             };
-            let parent_idx = idx >> 1;
-            if parent_idx < self.levels[h + 1].len() {
-                self.levels[h + 1][parent_idx] = parent; // node exists: update in place
-            } else {
-                self.levels[h + 1].push(parent); // first node at this slot: create
-            }
+            self.levels[h + 1].push(parent); // append, never overwrite
             current = parent;
             idx >>= 1;
+            path.push(current);
         }
-        current
+        path
     }
 
-    /// Siblings from leaf level up to root (length == depth).
+    pub fn insert(&mut self, leaf: Fr) -> Fr {
+        *self.insert_with_path(leaf).last().unwrap()
+    }
+
+    /// Sibling path for leaf `index` (or the empty frontier when index == len),
+    /// relative to the current root. length == depth.
     pub fn proof(&self, index: usize) -> Vec<Fr> {
-        assert!(index < self.len(), "index out of range");
-        self.path(index)
+        assert!(index <= self.len(), "index out of range");
+        let n = self.len();
+        (0..self.depth)
+            .map(|h| {
+                let x = (index >> (h + 1)) ^ 1;
+                let start = x * (1 << h);
+                if start < n {
+                    let l_max = ((x + 1) * (1 << h) - 1).min(n - 1);
+                    self.levels[h][l_max]
+                } else {
+                    self.zero_hashes[h]
+                }
+            })
+            .collect()
     }
 
-    /// Siblings for the (empty) leaf at `index`, where `index == self.len()`.
     pub fn proof_for_empty(&self, index: usize) -> Vec<Fr> {
         assert_eq!(index, self.len(), "index must be the next empty slot");
-        self.path(index)
+        self.proof(index)
     }
 
-    fn path(&self, index: usize) -> Vec<Fr> {
-        let mut proof = Vec::with_capacity(self.depth);
-        let mut idx = index;
-        for h in 0..self.depth {
-            let sib = idx ^ 1;
-            proof.push(if sib < self.levels[h].len() {
-                self.levels[h][sib]
-            } else {
-                self.zero_hashes[h]
-            });
-            idx >>= 1;
-        }
-        proof
+    /// Level h's append-only history: level[h][k] = node (k >> h) value after leaf k.
+    pub fn level(&self, h: usize) -> &[Fr] {
+        &self.levels[h]
     }
 }
 
-/// One hash-chain step: `poseidon3(prev, address_to_fr(to), value)`.
+/// hash-chain step unchanged
 pub fn hash_chain_step(prev: Fr, to: [u8; 20], value: Fr) -> Fr {
     poseidon3(prev, crate::burn::address_to_fr(to), value).expect("poseidon")
 }

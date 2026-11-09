@@ -2,6 +2,7 @@ pragma circom 2.1.0;
 include "./poseidon.circom";
 include "./merkle.circom";
 include "../circomlib/circuits/comparators.circom";
+include "../circomlib/circuits/bitify.circom";
 
 template Withdraw(levels, N) {
     signal input root;
@@ -16,16 +17,26 @@ template Withdraw(levels, N) {
     signal input siblings[N][levels];
     signal input sum;
 
-    component burnAddr = Poseidon2();
-    burnAddr.a <== recipient;
-    burnAddr.b <== secret;
+    component burnAddrFull = Poseidon2();
+    burnAddrFull.a <== recipient;
+    burnAddrFull.b <== secret;
+
+    // burn address preimage = low 160 bits of poseidon2(recipient, secret)
+    // == address_to_fr(to) in src/burn.rs (trim_to_160)
+    component burnBits = Num2Bits(254);
+    burnBits.in <== burnAddrFull.out;
+    signal burnAddr;
+    burnAddr <== burnBits.out[0];
+    for (var i = 1; i < 160; i++) {
+        burnAddr <== burnAddr + burnBits.out[i] * (2 ** i);
+    }
 
     component leaf[N];
     component m[N];
     for (var k = 0; k < N; k++) {
         // real: leaf = poseidon2(burnAddr, value); padding: value forced 0
         leaf[k] = Poseidon2();
-        leaf[k].a <== burnAddr.out;
+        leaf[k].a <== burnAddr;
         leaf[k].b <== values[k];
         // padding slot must have zero value
         values[k] * isPadding[k] === 0;

@@ -76,6 +76,7 @@ fn parse_cli() -> Result<Cli, Box<dyn std::error::Error>> {
     })
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub rpc_url: String,
     pub database_url: String,
