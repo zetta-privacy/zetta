@@ -8,8 +8,9 @@ import { HomeScreen } from './src/screens/HomeScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { LockScreen } from './src/screens/LockScreen'
 import { BurnScreen } from './src/screens/BurnScreen'
+import { WithdrawScreen } from './src/screens/WithdrawScreen';
 
-type Tab = 'home' | 'burn' | 'settings';
+type Tab = 'home' | 'burn' | 'withdraw' | 'settings';
 
 const TABS: {
   id: Tab;
@@ -18,8 +19,9 @@ const TABS: {
   iconActive: keyof typeof Ionicons.glyphMap;
 }[] = [
     { id: 'home', label: 'Home', icon: 'home-outline', iconActive: 'home' },
-  { id: 'burn', label: 'Burn', icon: 'swap-horizontal-outline', iconActive: 'swap-horizontal' },
-  { id: 'settings', label: 'Settings', icon: 'settings-outline', iconActive: 'settings' },
+    { id: 'burn', label: 'Burn', icon: 'swap-horizontal-outline', iconActive: 'swap-horizontal' },
+    { id: 'settings', label: 'Settings', icon: 'settings-outline', iconActive: 'settings' },
+    { id: 'withdraw', label: 'Withdraw', icon: 'cash-outline', iconActive: 'cash' },
 ];
 
 export default function App() {
@@ -36,6 +38,7 @@ export default function App() {
       {tab === 'home' && <HomeScreen />}
       {tab === 'burn' && <BurnScreen />}
       {tab === 'settings' && <SettingsScreen />}
+      {tab === 'withdraw' && <WithdrawScreen />}
 
       {/* floating frosted-glass tab bar */}
       <View style={styles.tabBarWrap} pointerEvents="box-none">

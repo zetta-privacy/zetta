@@ -9,16 +9,17 @@ import {
   Text,
   View,
 } from 'react-native';
-import { pirRetrieveLeaf } from '../pirClient';
-import { burnAddress } from '../crypto';
+import { pirRead } from '../pirClient';
 import {
   addBurnAddress,
+  burnAddress,
   BurnAddressEntry,
+  getOrCreateSecretKey,
   listBurnAddresses,
-  randomSecretKey,
 } from '../burn';
-import { getOrCreateWallet } from '../eth';
 import { formatUsd } from '../format';
+import { getOrCreateWallet } from '../eth';
+import { CHAIN_ID } from '../tokens';
 
 interface Deposit {
   leaf: string; // 0x + 64 hex (32-byte Fr leaf)
@@ -44,7 +45,7 @@ export function BurnScreen() {
 
   const loadDeposits = useCallback(async () => {
     try {
-      const leaf = await pirRetrieveLeaf(0); // index TBD — see open question
+      const leaf = await pirRead(0, 0); // index 0, level 0 (= leaves)
       setDeposits([{ leaf: toHex(leaf) }]);
     } catch (e) {
       console.warn('pir failed', e);
@@ -62,13 +63,10 @@ export function BurnScreen() {
     setBusy(true);
     try {
       const w = await getOrCreateWallet();
-      const secretKey = randomSecretKey();
-      const addr = burnAddress(w.address, secretKey);
-      await addBurnAddress({
-        address: addr,
-        secretKey: secretKey.toString(10),
-        createdAt: Date.now(),
-      });
+      const secretKey = await getOrCreateSecretKey();
+      const i = (await listBurnAddresses()).length;
+      const addr = burnAddress(CHAIN_ID, w.address, secretKey, i);
+      await addBurnAddress({ address: addr, index: i, createdAt: Date.now() });
       setLatest(addr);
       await loadAddresses();
     } finally {

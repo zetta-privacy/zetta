@@ -12,6 +12,8 @@ use std::sync::{Arc, RwLock};
 
 /// Sibling levels 0..31 (the root at level 32 is public, not served).
 pub const NUM_LEVELS: usize = 32;
+pub const CUCKOO_LEVEL: usize = NUM_LEVELS; // 32
+pub const VALUES_LEVEL: usize = NUM_LEVELS + 1; // 33
 /// 2^(nu_1 + nu_2) entries per level.
 const NUM_ITEMS: usize = 1 << (9 + 6); // 32768
 const WORDS_PER_ITEM: usize = 32 / 8; // 4 u64 = 32 bytes
@@ -49,6 +51,7 @@ pub async fn run(state: SharedState, dbs: Arc<RwLock<Vec<AlignedMemory64>>>, key
             let mut dbs = dbs.write().unwrap();
             if new_len > last_written {
                 append_level_dbs(&mut dbs[..NUM_LEVELS], &s.tree, last_written);
+                append_level_db(&mut dbs[VALUES_LEVEL], &s.values, last_written);
                 last_written = new_len;
             }
             if cuckoo_len > last_cuckoo {

@@ -2,7 +2,7 @@ use alloy::providers::ProviderBuilder;
 use spiral_rs::aligned_memory::AlignedMemory64;
 use std::sync::{Arc, Mutex};
 use zetta::server::oprf::ServerKey;
-use zetta::server::pir::{build_cuckoo_db, build_level_dbs};
+use zetta::server::pir::{build_cuckoo_db, build_level_db, build_level_dbs};
 
 use zetta::config::{Config, load_settings};
 use zetta::server::state::State;
@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let oprf_key = ServerKey::random();
     let cuckoo = zetta::server::cuckoo::CuckooTable::build(
-        &&state.lock().unwrap().cuckoo_entries, // your Vec<([u8;20], u32, u64)>
+        &state.lock().unwrap().cuckoo_entries, // your Vec<([u8;20], u32, u64)>
         oprf_key.clone(),
         1 << 16, // table size (power of 2)
     );
@@ -109,6 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pir_dbs: Arc<RwLock<Vec<AlignedMemory64>>> = Arc::new(RwLock::new({
         let mut dbs = build_level_dbs(&state.lock().unwrap().tree).to_vec();
         dbs.push(build_cuckoo_db(&cuckoo.table));
+        dbs.push(build_level_db(&state.lock().unwrap().values));
         dbs
     }));
 

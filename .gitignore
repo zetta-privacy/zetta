@@ -11,3 +11,4 @@ mobile/.expo
 # Ignore anvil deployments
 broadcast/Deploy.s.sol/31337
 zkp/build
+mobile/assets

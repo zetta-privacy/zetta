@@ -276,7 +276,7 @@ async fn fetch_chain_events(
 
 /// Replay one proven transfer: tree insert + hash-chain step + ledger entries.
 fn apply_transfer(s: &mut State, e: &BurnEvent) -> Result<(), Box<dyn std::error::Error>> {
-    let leaf_index = s.tree.len() as u64; // BEFORE insert
+    let leaf_index = s.tree.len() as u64;
     let j = match s.address_counts.get_mut(&e.to) {
         Some(c) => {
             *c += 1;
@@ -288,6 +288,7 @@ fn apply_transfer(s: &mut State, e: &BurnEvent) -> Result<(), Box<dyn std::error
         }
     };
     s.cuckoo_entries.push((e.to, j, leaf_index));
+    s.values.push(e.value);
     s.tree.insert(poseidon2(address_to_fr(e.to), e.value)?);
     s.chain.apply(e.to, e.value);
     Ok(())

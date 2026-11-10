@@ -9,7 +9,7 @@ template Withdraw(levels, N) {
     signal input recipient;
     signal input I;
     signal input currentIndex;
-    signal input secret;
+    signal input secret[N];
     signal input isPadding[N];
     signal input values[N];
     signal input indices[N];
@@ -17,28 +17,23 @@ template Withdraw(levels, N) {
     signal input siblings[N][levels];
     signal input sum;
 
-    component burnAddrFull = Poseidon2();
-    burnAddrFull.a <== recipient;
-    burnAddrFull.b <== secret;
-
-    // burn address preimage = low 160 bits of poseidon2(recipient, secret)
-    // == address_to_fr(to) in src/burn.rs (trim_to_160)
-    component burnBits = Num2Bits(254);
-    burnBits.in <== burnAddrFull.out;
-    signal burnAddr;
-    burnAddr <== burnBits.out[0];
-    for (var i = 1; i < 160; i++) {
-        burnAddr <== burnAddr + burnBits.out[i] * (2 ** i);
-    }
-
     component leaf[N];
     component m[N];
     for (var k = 0; k < N; k++) {
-        // real: leaf = poseidon2(burnAddr, value); padding: value forced 0
+        // per-slot burn address: low 160 bits of poseidon2(recipient, secret[k])
+        component burnAddrFull = Poseidon2();
+        burnAddrFull.a <== recipient;
+        burnAddrFull.b <== secret[k];
+        component burnBits = Num2Bits(254);
+        burnBits.in <== burnAddrFull.out;
+        component burnAddrNum = Bits2Num(160);
+        for (var i = 0; i < 160; i++) {
+            burnAddrNum.in[i] <== burnBits.out[i];
+        }
+
         leaf[k] = Poseidon2();
-        leaf[k].a <== burnAddr;
+        leaf[k].a <== burnAddrNum.out;
         leaf[k].b <== values[k];
-        // padding slot must have zero value
         values[k] * isPadding[k] === 0;
 
         m[k] = MerkleRoot(levels);
@@ -47,8 +42,9 @@ template Withdraw(levels, N) {
             m[k].pathIndices[i] <== pathIndices[k][i];
             m[k].siblings[i] <== siblings[k][i];
         }
-        m[k].root === root;
+        (1 - isPadding[k]) * (m[k].root - root) === 0;
     }
+
 
     // real indices > I
     component gt[N];
@@ -62,11 +58,13 @@ template Withdraw(levels, N) {
 
     // strictly increasing (real slots; padding follows the same order)
     component inc[N - 1];
+    signal realPair[N - 1];
     for (var k = 0; k < N - 1; k++) {
         inc[k] = LessThan(40);
         inc[k].in[0] <== indices[k];
         inc[k].in[1] <== indices[k + 1];
-        inc[k].out === 1;
+        realPair[k] <== (1 - isPadding[k]) * (1 - isPadding[k + 1]); // quadratic
+        realPair[k] * (1 - inc[k].out) === 0;                         // quadratic
     }
 
     // isPadding must be monotonic: 0..0 1..1 (no real slot after a padding slot)
@@ -87,6 +85,14 @@ template Withdraw(levels, N) {
     }
     sum === acc[N-1];
 
+    // freshness: currentIndex > every index (real and padding)
+    component fresh[N];
+    for (var k = 0; k < N; k++) {
+        fresh[k] = LessThan(40);
+        fresh[k].in[0] <== indices[k];
+        fresh[k].in[1] <== currentIndex;
+        fresh[k].out === 1;
+    }
 }
 
-component main { public [root, recipient, I, currentIndex, sum] } = Withdraw(32, 16);
+component main { public [root, recipient, I, currentIndex, sum] } = Withdraw(32, 4);

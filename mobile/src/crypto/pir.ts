@@ -417,46 +417,6 @@ export class Client {
 
     return serializePublicParams(ppSeed, [vPacking, vExpLeft, vExpRight, [vConv]]);
   }
-
-  generateKeys(): { seed: Uint8Array; ppBytes: Uint8Array } {
-    const rng = new ChaCha20Rng(crypto.getRandomValues(new Uint8Array(32)));
-    this.generateSecretKeys(rng);
-    const skRegNtt = toNtt(this.skReg);
-    const skGswNtt = toNtt(this.skGsw);
-
-    const rng2 = new ChaCha20Rng(crypto.getRandomValues(new Uint8Array(32)));
-    const ppSeed = rngSeed32(rng2);
-    const rngPub = new ChaCha20Rng(ppSeed);
-
-    const vPacking: PolyMatrixNTT[] = [];
-    const gadgetConv = toNtt(buildGadget(1, T_CONV));
-    for (let i = 0; i < N; i++) {  // numPackingMats = n = 2
-      const scaled = scalarMultiplyNtt(skRegNtt, gadgetConv);
-      const ag = new PolyMatrixNTT(N, T_CONV);
-      copyInto(ag, scaled, i, 0);
-      vPacking.push(this.encryptMatrixGsw(ag, rng, rngPub));
-    }
-
-    const vExpLeft = this.generateExpansionParams(g(), T_EXP_LEFT, rng, rngPub);
-    const vExpRight = this.generateExpansionParams(stopRound() + 1, T_EXP_RIGHT, rng, rngPub);
-
-    const gConv = buildGadget(2, 2 * T_CONV);
-    const skRegNttSq = multiplyNtt(skRegNtt, skRegNtt);
-    const vConv = new PolyMatrixNTT(2, 2 * T_CONV);
-    for (let i = 0; i < 2 * T_CONV; i++) {
-      const val = gConv.poly(i % 2, i)[0];
-      const single = singleValue(val);
-      const sigma = i % 2 === 0
-        ? multiplyNtt(skRegNttSq, toNtt(single))
-        : multiplyNtt(skRegNtt, toNtt(single));
-      const ct = this.encryptMatrixReg(sigma, rng, rngPub);
-      vConv.setPoly(0, i, ct.poly(0, 0));
-      vConv.setPoly(1, i, ct.poly(1, 0));
-    }
-
-    const ppBytes = serializePublicParams(ppSeed, [vPacking, vExpLeft, vExpRight, [vConv]]);
-    return { seed: ppSeed, ppBytes };
-  }
   generateQuery(idxTarget: number): Uint8Array {
     const rng = new ChaCha20Rng(crypto.getRandomValues(new Uint8Array(32)));
     const querySeed = rngSeed32(rng);

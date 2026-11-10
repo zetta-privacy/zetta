@@ -1,5 +1,6 @@
 /** zUSDC + USDC on Base Sepolia (contracts in web/data/addresses.json). */
 export const RPC_URL = process.env.EXPO_PUBLIC_RPC_URL ?? 'https://sepolia.base.org';
+export const CHAIN_ID = 84532; // Base Sepolia
 
 export interface Token {
   id: string;

@@ -8,7 +8,12 @@ interface IRootTransitionVerifier {
 }
 
 interface IWithdrawVerifier {
-    function verifyOpaqueNovaProof(uint256[34] calldata proof) external view returns (bool);
+    function verifyProof(
+        uint[2] calldata a,
+        uint[2][2] calldata b,
+        uint[2] calldata c,
+        uint[6] calldata input
+    ) external view returns (bool);
 }
 
 contract Verifier {
@@ -110,44 +115,36 @@ contract Verifier {
 
     /// proof = [i, z0[0..4], zi[0..4], 25 decider elements]
     /// z0[0] is the fold's start index — ordering token only, not checked here.
-    function withdraw(uint256 chainId, address addr, bytes32 _tweak, uint256[34] calldata proof) external {
-        require(chainId == block.chainid, "wrong chain");
+    function withdraw(
+        address addr,
+        uint[2] calldata a, uint[2][2] calldata b, uint[2] calldata c,
+        uint[6] calldata input
+    ) external {
+        uint256 root         = input[0];
+        uint256 recipient    = input[1];
+        uint256 prevIndex    = input[2];
+        uint256 currentIndex = input[3];
+        uint256 currentSum   = input[4];
+        uint256 prevSum      = input[5];
 
-        uint256 recipient = computeRecipient(chainId, addr, _tweak);
-
-        uint256 prevIndex = proof[1];
-        uint256 prevSum = proof[2];
-        uint256 root = proof[3];
-        uint256 proofRecipient = proof[4];
-        uint256 newIndex = proof[5];
-        uint256 sum = proof[6];
-
+        require(recipient == computeRecipient(block.chainid, addr), "recipient mismatch");
         require(root == transferRoot, "unknown root");
-        require(proofRecipient == recipient, "recipient mismatch");
-        require(prevSum == totalWithdrawn[recipient], "invalid sum base");
         require(prevIndex == withdrawnIndex[recipient], "invalid frontier");
+        require(prevSum == totalWithdrawn[recipient], "invalid sum base");
 
-        require(withdrawVerifier.verifyOpaqueNovaProof(proof), "invalid proof");
+        require(withdrawVerifier.verifyProof(a, b, c, input), "invalid proof");
 
-        uint256 delta = sum - totalWithdrawn[recipient];
+        uint256 delta = currentSum - prevSum;
         require(delta > 0, "nothing to withdraw");
-        totalWithdrawn[recipient] = sum;
-        withdrawnIndex[recipient] = newIndex;
+        totalWithdrawn[recipient] = currentSum;
+        withdrawnIndex[recipient] = currentIndex;
 
         token.teleport(addr, delta);
     }
 
-    function computeRecipient(uint256 chainId, address addr, bytes32 _tweak)
-        public
-        pure
-        returns (uint256)
-    {
-        require(chainId <= type(uint64).max, "chain id too large");
-        // casting to 'uint64' is safe because chain ids are bounded by EIP-2294
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint64 cid = uint64(chainId);
-        // forge-lint: disable-next-line(asm-keccak256)
-        bytes32 h = keccak256(abi.encodePacked(cid, addr, _tweak));
+
+    function computeRecipient(uint256 chain_id, address addr) public pure returns (uint256) {
+        bytes32 h = keccak256(abi.encodePacked(uint64(chain_id), addr));
         return uint256(h) & HASH_CHAIN_MASK;
     }
 }

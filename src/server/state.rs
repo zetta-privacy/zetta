@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use ark_bn254::Fr;
+
 use crate::config::Settings;
 use crate::tree::{HashChain, MerkleTree};
 use crate::zkp::TREE_DEPTH;
@@ -11,6 +13,7 @@ pub struct State {
     pub chain: HashChain,
     pub address_counts: HashMap<[u8; 20], u32>,
     pub cuckoo_entries: Vec<([u8; 20], u32, u64)>,
+    pub values: Vec<Fr>,
     pub chain_id: u64,
     pub poll_interval_secs: u64,
     pub rotate_threshold: u64,
@@ -23,6 +26,7 @@ impl State {
             chain: HashChain::new(),
             address_counts: HashMap::new(),
             cuckoo_entries: Vec::new(),
+            values: Vec::new(),
             chain_id,
             poll_interval_secs: settings.poll_interval_secs,
             rotate_threshold: settings.rotate_threshold,
